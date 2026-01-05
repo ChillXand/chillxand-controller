@@ -188,7 +188,7 @@ echo ""
 if [[ "$DRY_RUN" == true ]]; then
     echo -e "${YELLOW}╔════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${YELLOW}║                      DRY-RUN MODE                              ║${NC}"
-    echo -e "${YELLOW}║         No changes will be made. Use -x to execute.            ║${NC}"
+    echo -e "${YELLOW}║         No changes will be made. Use -x to execute.           ║${NC}"
     echo -e "${YELLOW}╚════════════════════════════════════════════════════════════════╝${NC}"
 else
     echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
@@ -572,34 +572,7 @@ EOF
 fi
 
 # ============================================
-# 10. DISABLE COREDUMPS
-# ============================================
-log_section "Systemd Coredumps"
-
-COREDUMP_CONF="/etc/systemd/coredump.conf"
-if grep -q "^Storage=none" "$COREDUMP_CONF" 2>/dev/null; then
-    log_ok "Coredumps already disabled"
-    STATUS[coredumps]="disabled"
-    ACTION[coredumps]="none"
-else
-    log_status "Coredumps may be enabled"
-    log_action "Disable coredump storage"
-    STATUS[coredumps]="enabled"
-    ACTION[coredumps]="disable"
-    
-    if [[ "$DRY_RUN" == false ]]; then
-        mkdir -p /etc/systemd/coredump.conf.d
-        cat > /etc/systemd/coredump.conf.d/disable.conf << 'EOF'
-[Coredump]
-Storage=none
-ProcessSizeMax=0
-EOF
-        systemctl daemon-reload
-    fi
-fi
-
-# ============================================
-# 11. TMPFS FOR /tmp
+# 10. TMPFS FOR /tmp
 # ============================================
 log_section "tmpfs for /tmp"
 
@@ -623,7 +596,7 @@ else
 fi
 
 # ============================================
-# 12. CLEANUP CRON JOB
+# 11. CLEANUP CRON JOB
 # ============================================
 log_section "Cleanup Cron Job"
 
@@ -677,7 +650,7 @@ EOF
 fi
 
 # ============================================
-# 13. FAIL2BAN
+# 12. FAIL2BAN
 # ============================================
 log_section "Fail2ban"
 
@@ -726,7 +699,7 @@ EOF
 fi
 
 # ============================================
-# 14. UFW VERIFICATION
+# 13. UFW VERIFICATION
 # ============================================
 log_section "UFW Firewall Verification"
 
@@ -816,7 +789,7 @@ else
 fi
 
 # ============================================
-# 15. KERNEL SYSCTL HARDENING
+# 14. KERNEL SYSCTL HARDENING
 # ============================================
 log_section "Kernel Sysctl Hardening"
 
@@ -880,7 +853,7 @@ EOF
 fi
 
 # ============================================
-# 16. DISABLE UNCOMMON NETWORK PROTOCOLS
+# 15. DISABLE UNCOMMON NETWORK PROTOCOLS
 # ============================================
 log_section "Disable Uncommon Network Protocols"
 
@@ -922,7 +895,7 @@ EOF
 fi
 
 # ============================================
-# 17. SECURE SHARED MEMORY
+# 16. SECURE SHARED MEMORY
 # ============================================
 log_section "Secure Shared Memory"
 
@@ -954,7 +927,7 @@ else
 fi
 
 # ============================================
-# 18. DISABLE CTRL-ALT-DELETE
+# 17. DISABLE CTRL-ALT-DELETE
 # ============================================
 log_section "Disable Ctrl-Alt-Delete Reboot"
 
@@ -980,7 +953,7 @@ else
 fi
 
 # ============================================
-# 19. RESTRICT CRON ACCESS
+# 18. RESTRICT CRON ACCESS
 # ============================================
 log_section "Restrict Cron Access"
 
@@ -1010,7 +983,7 @@ EOF
 fi
 
 # ============================================
-# 20. UI/DESKTOP REMOVAL
+# 19. UI/DESKTOP REMOVAL
 # ============================================
 log_section "UI/Desktop Components"
 
@@ -1076,7 +1049,7 @@ else
 fi
 
 # ============================================
-# 21. KEYPAIR SECURITY
+# 20. KEYPAIR SECURITY
 # ============================================
 log_section "pNode Keypair Security"
 
@@ -1108,7 +1081,7 @@ else
 fi
 
 # ============================================
-# 22. SSH HARDENING
+# 21. SSH HARDENING
 # ============================================
 log_section "SSH Security Hardening"
 
@@ -1189,7 +1162,7 @@ EOF
 fi
 
 # ============================================
-# 23. XANDEUM-PAGES STORAGE
+# 22. XANDEUM-PAGES STORAGE
 # ============================================
 log_section "Xandeum Pages Storage"
 
@@ -1260,7 +1233,7 @@ else
 fi
 
 # ============================================
-# 24. SYSTEM UPDATE
+# 23. SYSTEM UPDATE
 # ============================================
 log_section "System Update"
 
@@ -1274,7 +1247,7 @@ else
 fi
 
 # ============================================
-# 25. WRITE VERSION MARKER
+# 24. WRITE VERSION MARKER
 # ============================================
 if [[ "$DRY_RUN" == false ]]; then
     log_section "Writing Version Marker"
@@ -1316,7 +1289,6 @@ printf "%-25s %-20s %s\n" "Journald" "${STATUS[journald]:-unknown}" "${ACTION[jo
 printf "%-25s %-20s %s\n" "Apport" "${STATUS[apport]:-unknown}" "-"
 printf "%-25s %-20s %s\n" "Locales" "${STATUS[locales]:-unknown}" "${ACTION[locales]:-check}"
 printf "%-25s %-20s %s\n" "Docs/Man Pages" "${STATUS[docs]:-unknown}" "${ACTION[docs]:-check}"
-printf "%-25s %-20s %s\n" "Coredumps" "${STATUS[coredumps]:-unknown}" "${ACTION[coredumps]:-check}"
 printf "%-25s %-20s %s\n" "tmpfs /tmp" "${STATUS[tmpfs]:-unknown}" "${ACTION[tmpfs]:-check}"
 printf "%-25s %-20s %s\n" "Cleanup Cron" "${STATUS[cleanup_cron]:-unknown}" "${ACTION[cleanup_cron]:-check}"
 printf "%-25s %-20s %s\n" "Fail2ban" "${STATUS[fail2ban]:-unknown}" "${ACTION[fail2ban]:-check}"
