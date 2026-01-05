@@ -9,6 +9,11 @@
 
 set -e
 
+# Version
+VERSION="1.0.0"
+MARKER_DIR="/etc/chillxand"
+MARKER_FILE="${MARKER_DIR}/pnode-harden.version"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -40,9 +45,9 @@ EXPECTED_3001_IPS=(
 
 # Usage
 usage() {
-    echo "Usage: $0 [-x] [-t <ubuntu-pro-token>]"
+    echo "ChillXand pNode Hardening Script v${VERSION}"
     echo ""
-    echo "ChillXand pNode Hardening Script"
+    echo "Usage: $0 [-x] [-t <ubuntu-pro-token>]"
     echo ""
     echo "Default mode is DRY-RUN - shows what would be changed without making changes."
     echo ""
@@ -183,7 +188,7 @@ echo ""
 if [[ "$DRY_RUN" == true ]]; then
     echo -e "${YELLOW}╔════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${YELLOW}║                      DRY-RUN MODE                              ║${NC}"
-    echo -e "${YELLOW}║         No changes will be made. Use -x to execute.           ║${NC}"
+    echo -e "${YELLOW}║         No changes will be made. Use -x to execute.            ║${NC}"
     echo -e "${YELLOW}╚════════════════════════════════════════════════════════════════╝${NC}"
 else
     echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
@@ -193,11 +198,22 @@ else
 fi
 
 echo ""
+echo -e "  ${BOLD}pnode-harden.sh v${VERSION}${NC}"
+echo ""
 echo -e "  Hostname:        $(hostname)"
 echo -e "  Ubuntu:          ${UBUNTU_VERSION}"
 echo -e "  Kernel:          $(uname -r)"
 echo -e "  User:            chillxand ✓"
 echo -e "  Disk:            $(df -h / | awk 'NR==2 {print $3 " used / " $2 " (" $5 ")"}')"
+
+# Show previous run info if marker exists
+if [[ -f "$MARKER_FILE" ]]; then
+    PREV_VERSION=$(grep "^VERSION=" "$MARKER_FILE" 2>/dev/null | cut -d= -f2)
+    PREV_DATE=$(grep "^RUN_DATE=" "$MARKER_FILE" 2>/dev/null | cut -d= -f2)
+    echo -e "  Last hardened:   v${PREV_VERSION} on ${PREV_DATE}"
+else
+    echo -e "  Last hardened:   ${YELLOW}never${NC}"
+fi
 
 # ============================================
 # 1. CHILLXAND USER SUDO
@@ -1258,9 +1274,25 @@ else
 fi
 
 # ============================================
+# 25. WRITE VERSION MARKER
+# ============================================
+if [[ "$DRY_RUN" == false ]]; then
+    log_section "Writing Version Marker"
+    
+    mkdir -p "$MARKER_DIR"
+    cat > "$MARKER_FILE" << EOF
+VERSION=${VERSION}
+RUN_DATE=$(date '+%Y-%m-%d %H:%M:%S')
+HOSTNAME=$(hostname)
+EOF
+    chmod 644 "$MARKER_FILE"
+    log_ok "Marker written to $MARKER_FILE"
+fi
+
+# ============================================
 # SUMMARY
 # ============================================
-log_header "SUMMARY"
+log_header "SUMMARY - pnode-harden.sh v${VERSION}"
 
 echo ""
 if [[ "$DRY_RUN" == true ]]; then
@@ -1268,6 +1300,7 @@ if [[ "$DRY_RUN" == true ]]; then
     echo -e "${YELLOW}Run with -x flag to execute these changes${NC}"
 else
     echo -e "${GREEN}${BOLD}EXECUTE MODE - Changes applied${NC}"
+    echo -e "${GREEN}Version ${VERSION} recorded in ${MARKER_FILE}${NC}"
 fi
 
 echo ""
