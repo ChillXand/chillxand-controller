@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# ChillXand pNode Onboarding Script
+# ChillXand pNode Hardening Script (pnode-harden.sh)
 # Hardens and optimizes Ubuntu 24 servers for pNode operation
 #
 # Default: DRY-RUN mode (shows what would be done)
@@ -42,7 +42,7 @@ EXPECTED_3001_IPS=(
 usage() {
     echo "Usage: $0 [-x] [-t <ubuntu-pro-token>]"
     echo ""
-    echo "ChillXand pNode Onboarding Script"
+    echo "ChillXand pNode Hardening Script"
     echo ""
     echo "Default mode is DRY-RUN - shows what would be changed without making changes."
     echo ""
@@ -325,12 +325,14 @@ for setting_pair in "${SETTINGS_TO_CHECK[@]}"; do
     setting_name="${setting_pair%%:*}"
     expected_value="${setting_pair##*:}"
     
-    current=$(grep -E "^Unattended-Upgrade::${setting_name}" "$UNATTENDED_CONF" 2>/dev/null | grep -oP '"\K[^"]+' || echo "not set")
+    # Extract value, strip quotes, semicolons, and whitespace
+    current=$(grep -E "^Unattended-Upgrade::${setting_name}" "$UNATTENDED_CONF" 2>/dev/null | \
+              sed 's/.*"\([^"]*\)".*/\1/' | tr -d ' ;' || echo "not set")
     
     if [[ "$current" == "$expected_value" ]]; then
         log_ok "$setting_name = $expected_value"
     else
-        log_status "$setting_name = $current"
+        log_status "$setting_name = $current (expected: $expected_value)"
         log_action "Set $setting_name = $expected_value"
         
         if [[ "$DRY_RUN" == false ]]; then
@@ -348,7 +350,13 @@ log_section "Logrotate (Space Optimization)"
 LOGROTATE_CONF="/etc/logrotate.conf"
 CURRENT_ROTATE=$(grep -E "^rotate " "$LOGROTATE_CONF" 2>/dev/null | awk '{print $2}' || echo "not set")
 CURRENT_INTERVAL=$(grep -E "^(daily|weekly|monthly)" "$LOGROTATE_CONF" 2>/dev/null | head -1 || echo "not set")
-CURRENT_COMPRESS=$(grep -E "^compress" "$LOGROTATE_CONF" 2>/dev/null && echo "yes" || echo "no")
+
+# Check for compress (just check if line exists, don't output it)
+if grep -qE "^compress" "$LOGROTATE_CONF" 2>/dev/null; then
+    CURRENT_COMPRESS="yes"
+else
+    CURRENT_COMPRESS="no"
+fi
 
 if [[ "$CURRENT_INTERVAL" == "daily" && "$CURRENT_ROTATE" == "3" && "$CURRENT_COMPRESS" == "yes" ]]; then
     log_ok "Logrotate optimized (daily, 3 days, compressed)"
@@ -719,13 +727,13 @@ else
         log_ok "UFW is active"
         
         # Check default policies
-        if echo "$UFW_STATUS" | grep -q "Default: deny (incoming)"; then
+        if echo "$UFW_STATUS" | grep -q "Default:.*deny (incoming)"; then
             log_ok "Default deny incoming"
         else
             UFW_ISSUES+=("Default incoming not set to deny")
         fi
         
-        if echo "$UFW_STATUS" | grep -q "Default: allow (outgoing)"; then
+        if echo "$UFW_STATUS" | grep -q "Default:.*allow (outgoing)"; then
             log_ok "Default allow outgoing"
         else
             UFW_ISSUES+=("Default outgoing not set to allow")
