@@ -10,7 +10,7 @@
 set -e
 
 # Version
-VERSION="1.0.2"
+VERSION="1.0.3"
 MARKER_DIR="/etc/chillxand"
 MARKER_FILE="${MARKER_DIR}/pnode-harden.version"
 
@@ -613,12 +613,33 @@ else
         cat > "$CLEANUP_SCRIPT" << 'EOF'
 #!/bin/bash
 # ChillXand pNode Log Cleanup Script
+
+# System journal cleanup
 journalctl --vacuum-time=3d
 journalctl --vacuum-size=200M
+
+# Pod logs cleanup - keep last 3 days, compress old ones
+POD_LOGS_DIR="/root/pod-logs"
+if [[ -d "$POD_LOGS_DIR" ]]; then
+    # Compress logs older than 1 day
+    find "$POD_LOGS_DIR" -type f -name "*.log" -mtime +1 -exec gzip -f {} \; 2>/dev/null || true
+    # Delete compressed logs older than 3 days
+    find "$POD_LOGS_DIR" -type f -name "*.gz" -mtime +3 -delete 2>/dev/null || true
+    # Delete any logs older than 7 days regardless of type
+    find "$POD_LOGS_DIR" -type f -mtime +7 -delete 2>/dev/null || true
+fi
+
+# APT cleanup
 apt autoremove -y
 apt autoclean
+
+# Temp files cleanup
 find /tmp -type f -atime +1 -delete 2>/dev/null || true
 find /var/tmp -type f -atime +1 -delete 2>/dev/null || true
+
+# Clear user caches
+rm -rf /root/.npm /root/.cache 2>/dev/null || true
+
 logger "ChillXand cleanup completed"
 EOF
         chmod +x "$CLEANUP_SCRIPT"
