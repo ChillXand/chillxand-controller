@@ -188,7 +188,7 @@ echo ""
 if [[ "$DRY_RUN" == true ]]; then
     echo -e "${YELLOW}╔════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${YELLOW}║                      DRY-RUN MODE                              ║${NC}"
-    echo -e "${YELLOW}║         No changes will be made. Use -x to execute.           ║${NC}"
+    echo -e "${YELLOW}║         No changes will be made. Use -x to execute.            ║${NC}"
     echo -e "${YELLOW}╚════════════════════════════════════════════════════════════════╝${NC}"
 else
     echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
