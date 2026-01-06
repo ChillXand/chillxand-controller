@@ -10,7 +10,7 @@
 set -e
 
 # Version
-VERSION="1.0.0"
+VERSION="1.0.2"
 MARKER_DIR="/etc/chillxand"
 MARKER_FILE="${MARKER_DIR}/pnode-harden.version"
 
@@ -47,19 +47,19 @@ EXPECTED_3001_IPS=(
 usage() {
     echo "ChillXand pNode Hardening Script v${VERSION}"
     echo ""
-    echo "Usage: $0 [-x] [-t <ubuntu-pro-token>]"
+    echo "Usage: $0 [-x] [-t <token>]"
     echo ""
     echo "Default mode is DRY-RUN - shows what would be changed without making changes."
     echo ""
     echo "Options:"
-    echo "  -x    Execute changes (default is dry-run)"
-    echo "  -t    Ubuntu Pro token (optional, required only if Pro not attached)"
-    echo "  -h    Show this help message"
+    echo "  -x              Execute changes (default is dry-run)"
+    echo "  -t <token>      Ubuntu Pro token (optional, required only if Pro not attached)"
+    echo "  -h              Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                     # Dry-run, see what would change"
-    echo "  $0 -x                  # Execute (if Ubuntu Pro already attached)"
-    echo "  $0 -x -t 'C1xxx...'    # Execute with Ubuntu Pro token"
+    echo "  $0              # Dry-run, see what would change"
+    echo "  $0 -x           # Execute (if Ubuntu Pro already attached)"
+    echo "  $0 -x -t 'C1xxx...'  # Execute with Ubuntu Pro token"
     exit 0
 }
 
@@ -89,15 +89,15 @@ if [[ "$UBUNTU_MAJOR" != "24" ]]; then
     echo ""
     echo -e "${RED}╔════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${RED}║                                                                ║${NC}"
-    echo -e "${RED}║   ██████╗ ██████╗ ██████╗  ██████╗ ██████╗ ██╗                 ║${NC}"
-    echo -e "${RED}║   ██╔═══╝ ██╔══██╗██╔══██╗██╔═══██╗██╔══██╗██║                 ║${NC}"
-    echo -e "${RED}║   █████╗  ██████╔╝██████╔╝██║   ██║██████╔╝██║                 ║${NC}"
-    echo -e "${RED}║   ██╔══╝  ██╔══██╗██╔══██╗██║   ██║██╔══██╗╚═╝                 ║${NC}"
-    echo -e "${RED}║   ██████╗ ██║  ██║██║  ██║╚██████╔╝██║  ██║██╗                 ║${NC}"
-    echo -e "${RED}║   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝                 ║${NC}"
+    echo -e "${RED}║  ██████╗ ██████╗ ██████╗ ██████╗ ██████╗ ██╗                   ║${NC}"
+    echo -e "${RED}║  ██╔═══╝ ██╔══██╗██╔══██╗██╔═══██╗██╔══██╗██║                  ║${NC}"
+    echo -e "${RED}║  █████╗  ██████╔╝██████╔╝██║   ██║██████╔╝██║                  ║${NC}"
+    echo -e "${RED}║  ██╔══╝  ██╔══██╗██╔══██╗██║   ██║██╔══██╗╚═╝                  ║${NC}"
+    echo -e "${RED}║  ██████╗ ██║  ██║██║  ██║╚██████╔╝██║  ██║██╗                  ║${NC}"
+    echo -e "${RED}║  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝                  ║${NC}"
     echo -e "${RED}║                                                                ║${NC}"
-    echo -e "${RED}║   THIS SCRIPT REQUIRES UBUNTU 24.x                             ║${NC}"
-    echo -e "${RED}║   Detected version: ${UBUNTU_VERSION}                                        ║${NC}"
+    echo -e "${RED}║            THIS SCRIPT REQUIRES UBUNTU 24.x                   ║${NC}"
+    echo -e "${RED}║            Detected version: ${UBUNTU_VERSION}                             ║${NC}"
     echo -e "${RED}╚════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     exit 1
@@ -110,17 +110,17 @@ if ! id "chillxand" &>/dev/null; then
     echo ""
     echo -e "${RED}╔════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${RED}║                                                                ║${NC}"
-    echo -e "${RED}║   ██████╗ ██████╗ ██████╗  ██████╗ ██████╗ ██╗                 ║${NC}"
-    echo -e "${RED}║   ██╔═══╝ ██╔══██╗██╔══██╗██╔═══██╗██╔══██╗██║                 ║${NC}"
-    echo -e "${RED}║   █████╗  ██████╔╝██████╔╝██║   ██║██████╔╝██║                 ║${NC}"
-    echo -e "${RED}║   ██╔══╝  ██╔══██╗██╔══██╗██║   ██║██╔══██╗╚═╝                 ║${NC}"
-    echo -e "${RED}║   ██████╗ ██║  ██║██║  ██║╚██████╔╝██║  ██║██╗                 ║${NC}"
-    echo -e "${RED}║   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝                 ║${NC}"
+    echo -e "${RED}║  ██████╗ ██████╗ ██████╗ ██████╗ ██████╗ ██╗                   ║${NC}"
+    echo -e "${RED}║  ██╔═══╝ ██╔══██╗██╔══██╗██╔═══██╗██╔══██╗██║                  ║${NC}"
+    echo -e "${RED}║  █████╗  ██████╔╝██████╔╝██║   ██║██████╔╝██║                  ║${NC}"
+    echo -e "${RED}║  ██╔══╝  ██╔══██╗██╔══██╗██║   ██║██╔══██╗╚═╝                  ║${NC}"
+    echo -e "${RED}║  ██████╗ ██║  ██║██║  ██║╚██████╔╝██║  ██║██╗                  ║${NC}"
+    echo -e "${RED}║  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝                  ║${NC}"
     echo -e "${RED}║                                                                ║${NC}"
-    echo -e "${RED}║   USER 'chillxand' DOES NOT EXIST                              ║${NC}"
+    echo -e "${RED}║            USER 'chillxand' DOES NOT EXIST                    ║${NC}"
     echo -e "${RED}║                                                                ║${NC}"
-    echo -e "${RED}║   This script requires the 'chillxand' user to exist.          ║${NC}"
-    echo -e "${RED}║   Please create the user first or run the pNode installer.     ║${NC}"
+    echo -e "${RED}║  This script requires the 'chillxand' user to exist.          ║${NC}"
+    echo -e "${RED}║  Please create the user first or run the pNode installer.     ║${NC}"
     echo -e "${RED}║                                                                ║${NC}"
     echo -e "${RED}╚════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -130,7 +130,6 @@ fi
 # ============================================
 # HELPER FUNCTIONS
 # ============================================
-
 log_header() {
     echo ""
     echo -e "${CYAN}═══════════════════════════════════════════════════════════════${NC}"
@@ -187,7 +186,7 @@ set_unattended_config() {
 echo ""
 if [[ "$DRY_RUN" == true ]]; then
     echo -e "${YELLOW}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║                      DRY-RUN MODE                              ║${NC}"
+    echo -e "${YELLOW}║                     DRY-RUN MODE                               ║${NC}"
     echo -e "${YELLOW}║         No changes will be made. Use -x to execute.            ║${NC}"
     echo -e "${YELLOW}╚════════════════════════════════════════════════════════════════╝${NC}"
 else
@@ -232,7 +231,6 @@ else
     log_action "Add 'chillxand' to sudo group"
     STATUS[chillxand_user]="no sudo group"
     ACTION[chillxand_user]="add to sudo"
-    
     if [[ "$DRY_RUN" == false ]]; then
         usermod -aG sudo chillxand
     fi
@@ -245,7 +243,6 @@ if [[ -f "$SUDOERS_FILE" ]] && grep -q "NOPASSWD" "$SUDOERS_FILE" 2>/dev/null; t
 else
     log_status "Passwordless sudo not configured"
     log_action "Configure passwordless sudo for chillxand"
-    
     if [[ "$DRY_RUN" == false ]]; then
         echo "chillxand ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_FILE"
         chmod 440 "$SUDOERS_FILE"
@@ -266,7 +263,6 @@ else
     log_action "Install update-notifier-common"
     STATUS[update_notifier]="not installed"
     ACTION[update_notifier]="install"
-    
     if [[ "$DRY_RUN" == false ]]; then
         apt update && apt install update-notifier-common -y
     fi
@@ -284,11 +280,9 @@ if pro status 2>/dev/null | grep -q "Subscription: Ubuntu Pro"; then
 else
     log_status "Ubuntu Pro is NOT attached"
     STATUS[ubuntu_pro]="not attached"
-    
     if [[ -n "$PRO_TOKEN" ]]; then
         log_action "Attach Ubuntu Pro with provided token"
         ACTION[ubuntu_pro]="attach"
-        
         if [[ "$DRY_RUN" == false ]]; then
             pro attach "$PRO_TOKEN"
         fi
@@ -321,7 +315,6 @@ else
     log_status "unattended-upgrades is NOT installed"
     log_action "Install unattended-upgrades"
     STATUS[unattended_pkg]="not installed"
-    
     if [[ "$DRY_RUN" == false ]]; then
         apt update
         apt install unattended-upgrades -y
@@ -350,7 +343,6 @@ for setting_pair in "${SETTINGS_TO_CHECK[@]}"; do
     else
         log_status "$setting_name = $current (expected: $expected_value)"
         log_action "Set $setting_name = $expected_value"
-        
         if [[ "$DRY_RUN" == false ]]; then
             [[ ! -f "${UNATTENDED_CONF}.backup" ]] && cp "$UNATTENDED_CONF" "${UNATTENDED_CONF}.backup"
             set_unattended_config "$UNATTENDED_CONF" "Unattended-Upgrade::${setting_name}" "$expected_value"
@@ -383,10 +375,8 @@ else
     log_action "Set to daily, 3 days retention, compressed"
     STATUS[logrotate]="not optimized"
     ACTION[logrotate]="configure"
-    
     if [[ "$DRY_RUN" == false ]]; then
         [[ ! -f "${LOGROTATE_CONF}.backup" ]] && cp "$LOGROTATE_CONF" "${LOGROTATE_CONF}.backup"
-        
         cat > "$LOGROTATE_CONF" << 'EOF'
 # ChillXand pNode optimized logrotate configuration
 daily
@@ -418,10 +408,8 @@ else
     log_action "Set journal limits (200M max, 3 days retention)"
     STATUS[journald]="not configured"
     ACTION[journald]="configure"
-    
     if [[ "$DRY_RUN" == false ]]; then
         [[ ! -f "${JOURNALD_CONF}.backup" ]] && cp "$JOURNALD_CONF" "${JOURNALD_CONF}.backup"
-        
         cat > "$JOURNALD_CONF" << 'EOF'
 [Journal]
 SystemMaxUse=200M
@@ -430,7 +418,6 @@ SystemMaxFiles=5
 MaxRetentionSec=3d
 RuntimeMaxUse=50M
 EOF
-        
         systemctl restart systemd-journald
     fi
 fi
@@ -445,7 +432,6 @@ if systemctl is-enabled apport &>/dev/null; then
     log_status "Apport (crash reporter) is enabled"
     log_action "Disable apport"
     STATUS[apport]="enabled"
-    
     if [[ "$DRY_RUN" == false ]]; then
         systemctl disable apport
         systemctl stop apport 2>/dev/null || true
@@ -464,7 +450,6 @@ else
     log_status "APT cache limits not configured"
     log_action "Set APT cache limits"
     STATUS[apt_cache]="not configured"
-    
     if [[ "$DRY_RUN" == false ]]; then
         cat > "$APT_CACHE_CONF" << 'EOF'
 APT::Cache-Limit "100000000";
@@ -482,7 +467,6 @@ else
     log_status "APT autoclean not configured"
     log_action "Enable weekly APT autoclean"
     STATUS[apt_autoclean]="not configured"
-    
     if [[ "$DRY_RUN" == false ]]; then
         echo 'APT::Periodic::AutocleanInterval "7";' > "$APT_PERIODIC_CONF"
     fi
@@ -511,7 +495,6 @@ if [[ -f "$LOCALE_ARCHIVE" ]]; then
                 echo "localepurge localepurge/use-dpkg-feature boolean true" | debconf-set-selections
                 DEBIAN_FRONTEND=noninteractive apt install -y localepurge
             fi
-            
             # Configure to keep only English
             cat > /etc/locale.nopurge << 'EOF'
 MANDELETE
@@ -589,7 +572,6 @@ else
     log_action "Configure /tmp as tmpfs (applies on reboot)"
     STATUS[tmpfs]="on disk"
     ACTION[tmpfs]="configure"
-    
     if [[ "$DRY_RUN" == false ]]; then
         echo "tmpfs /tmp tmpfs defaults,noatime,nosuid,nodev,mode=1777,size=256M 0 0" >> /etc/fstab
     fi
@@ -607,7 +589,6 @@ CRON_FILE="/etc/cron.d/chillxand-cleanup"
 if ! command -v cron &>/dev/null && ! command -v crond &>/dev/null; then
     log_status "Cron not installed"
     log_action "Install cron package"
-    
     if [[ "$DRY_RUN" == false ]]; then
         apt update
         apt install -y cron
@@ -663,7 +644,6 @@ elif dpkg -l 2>/dev/null | grep -q "fail2ban"; then
     log_action "Enable and start fail2ban"
     STATUS[fail2ban]="installed"
     ACTION[fail2ban]="enable"
-    
     if [[ "$DRY_RUN" == false ]]; then
         systemctl enable fail2ban
         systemctl start fail2ban
@@ -681,18 +661,17 @@ else
         # Create local jail config
         cat > /etc/fail2ban/jail.local << 'EOF'
 [DEFAULT]
-bantime = 1h
+bantime  = 1h
 findtime = 10m
 maxretry = 5
 backend = systemd
 
 [sshd]
 enabled = true
-port = ssh
-filter = sshd
+port    = ssh
+filter  = sshd
 maxretry = 3
 EOF
-        
         systemctl enable fail2ban
         systemctl start fail2ban
     fi
@@ -730,6 +709,7 @@ else
         
         # Check required public ports
         UFW_NUMBERED=$(ufw status 2>/dev/null)
+        
         for rule in "${EXPECTED_UFW_PORTS[@]}"; do
             port="${rule%%:*}"
             rest="${rule#*:}"
@@ -976,7 +956,6 @@ root
 chillxand
 EOF
         chmod 600 "$CRON_ALLOW"
-        
         # Remove cron.deny if it exists (cron.allow takes precedence)
         rm -f /etc/cron.deny
     fi
@@ -988,11 +967,21 @@ fi
 log_section "UI/Desktop Components"
 
 BOOT_TARGET=$(systemctl get-default)
+
 UI_PACKAGES_FOUND=()
 UI_CHECK_PACKAGES=(
-    "ubuntu-desktop" "gnome-shell" "gnome-session" "kde-plasma-desktop"
-    "xfce4" "lxde" "xserver-xorg" "lightdm" "gdm3" "plymouth"
-    "gsettings-desktop-schemas" "python3-xkit"
+    "ubuntu-desktop"
+    "gnome-shell"
+    "gnome-session"
+    "kde-plasma-desktop"
+    "xfce4"
+    "lxde"
+    "xserver-xorg"
+    "lightdm"
+    "gdm3"
+    "plymouth"
+    "gsettings-desktop-schemas"
+    "python3-xkit"
 )
 
 for pkg in "${UI_CHECK_PACKAGES[@]}"; do
@@ -1040,7 +1029,6 @@ else
         apt remove --purge -y xserver-xorg* lightdm* gdm3* 2>/dev/null || true
         apt remove --purge -y plymouth* 2>/dev/null || true
         apt remove --purge -y gsettings-desktop-schemas python3-xkit 2>/dev/null || true
-        
         apt autoremove --purge -y
         apt autoclean
         journalctl --vacuum-time=1s
@@ -1068,7 +1056,6 @@ if [[ -f "$KEYPAIR_PATH" ]]; then
         log_action "Set to 600, root:root"
         STATUS[keypair]="not secured"
         ACTION[keypair]="secure"
-        
         if [[ "$DRY_RUN" == false ]]; then
             chmod 600 "$KEYPAIR_PATH"
             chown root:root "$KEYPAIR_PATH"
@@ -1150,7 +1137,6 @@ PermitEmptyPasswords no
 ChallengeResponseAuthentication no
 KbdInteractiveAuthentication no
 EOF
-            
             if sshd -t 2>&1; then
                 systemctl restart sshd
             else
@@ -1162,78 +1148,7 @@ EOF
 fi
 
 # ============================================
-# 22. XANDEUM-PAGES STORAGE
-# ============================================
-log_section "Xandeum Pages Storage"
-
-XANDEUM_PAGES="/xandeum-pages"
-RESERVED_GB=20
-RESERVED_BYTES=$((RESERVED_GB * 1024 * 1024 * 1024))
-
-# Get total disk size in bytes (root filesystem)
-TOTAL_BYTES=$(df -B1 / | awk 'NR==2 {print $2}')
-TOTAL_GB=$((TOTAL_BYTES / 1024 / 1024 / 1024))
-
-# Calculate target size
-TARGET_BYTES=$((TOTAL_BYTES - RESERVED_BYTES))
-TARGET_GB=$((TARGET_BYTES / 1024 / 1024 / 1024))
-
-# Ensure target is positive and reasonable
-if [[ $TARGET_GB -lt 10 ]]; then
-    log_error "Disk too small: ${TOTAL_GB}GB total, need at least 30GB (20GB reserved + 10GB minimum for xandeum-pages)"
-    STATUS[xandeum_pages]="disk too small"
-    ACTION[xandeum_pages]="MANUAL"
-else
-    if [[ -f "$XANDEUM_PAGES" ]]; then
-        # Get current size
-        CURRENT_BYTES=$(stat -c %s "$XANDEUM_PAGES" 2>/dev/null || echo "0")
-        CURRENT_GB=$((CURRENT_BYTES / 1024 / 1024 / 1024))
-        
-        # Calculate difference (allow 1GB tolerance)
-        DIFF_GB=$(( (TARGET_GB > CURRENT_GB) ? (TARGET_GB - CURRENT_GB) : (CURRENT_GB - TARGET_GB) ))
-        
-        if [[ $DIFF_GB -le 1 ]]; then
-            log_ok "/xandeum-pages exists: ${CURRENT_GB}GB (target: ${TARGET_GB}GB)"
-            STATUS[xandeum_pages]="${CURRENT_GB}GB"
-            ACTION[xandeum_pages]="none"
-        elif [[ $CURRENT_GB -lt $TARGET_GB ]]; then
-            log_status "/xandeum-pages is ${CURRENT_GB}GB, should be ${TARGET_GB}GB"
-            log_action "Grow /xandeum-pages by $((TARGET_GB - CURRENT_GB))GB"
-            STATUS[xandeum_pages]="${CURRENT_GB}GB (undersized)"
-            ACTION[xandeum_pages]="grow to ${TARGET_GB}GB"
-            
-            if [[ "$DRY_RUN" == false ]]; then
-                fallocate -l "${TARGET_BYTES}" "$XANDEUM_PAGES"
-                log_ok "Grew /xandeum-pages to ${TARGET_GB}GB"
-            fi
-        else
-            log_status "/xandeum-pages is ${CURRENT_GB}GB, should be ${TARGET_GB}GB"
-            log_action "Shrink /xandeum-pages by $((CURRENT_GB - TARGET_GB))GB"
-            STATUS[xandeum_pages]="${CURRENT_GB}GB (oversized)"
-            ACTION[xandeum_pages]="shrink to ${TARGET_GB}GB"
-            
-            if [[ "$DRY_RUN" == false ]]; then
-                truncate -s "${TARGET_BYTES}" "$XANDEUM_PAGES"
-                log_ok "Shrunk /xandeum-pages to ${TARGET_GB}GB"
-            fi
-        fi
-    else
-        log_status "/xandeum-pages does not exist"
-        log_action "Create /xandeum-pages at ${TARGET_GB}GB (${TOTAL_GB}GB total - ${RESERVED_GB}GB reserved)"
-        STATUS[xandeum_pages]="missing"
-        ACTION[xandeum_pages]="create ${TARGET_GB}GB"
-        
-        if [[ "$DRY_RUN" == false ]]; then
-            fallocate -l "${TARGET_BYTES}" "$XANDEUM_PAGES"
-            chmod 600 "$XANDEUM_PAGES"
-            chown root:root "$XANDEUM_PAGES"
-            log_ok "Created /xandeum-pages at ${TARGET_GB}GB"
-        fi
-    fi
-fi
-
-# ============================================
-# 23. SYSTEM UPDATE
+# 22. SYSTEM UPDATE
 # ============================================
 log_section "System Update"
 
@@ -1247,11 +1162,122 @@ else
 fi
 
 # ============================================
+# 23. XANDEUM-PAGES STORAGE
+# ============================================
+log_section "Xandeum Pages Storage"
+
+XANDEUM_PAGES="/xandeum-pages"
+RESERVED_GB=20
+RESERVED_BYTES=$((RESERVED_GB * 1024 * 1024 * 1024))
+
+# Get total disk size in bytes (root filesystem)
+TOTAL_BYTES=$(df -B1 / | awk 'NR==2 {print $2}')
+TOTAL_GB=$((TOTAL_BYTES / 1024 / 1024 / 1024))
+
+# Get current free space (what's actually available right now)
+FREE_BYTES=$(df -B1 / | awk 'NR==2 {print $4}')
+FREE_GB=$((FREE_BYTES / 1024 / 1024 / 1024))
+
+# Get current xandeum-pages size if it exists
+if [[ -f "$XANDEUM_PAGES" ]]; then
+    CURRENT_BYTES=$(stat -c %s "$XANDEUM_PAGES" 2>/dev/null || echo "0")
+else
+    CURRENT_BYTES=0
+fi
+CURRENT_GB=$((CURRENT_BYTES / 1024 / 1024 / 1024))
+
+# Calculate ideal target size (total - reserved)
+IDEAL_TARGET_BYTES=$((TOTAL_BYTES - RESERVED_BYTES))
+IDEAL_TARGET_GB=$((IDEAL_TARGET_BYTES / 1024 / 1024 / 1024))
+
+# Calculate maximum safe size based on what's actually available
+# Max we can grow to = current size + free space - reserved buffer
+MAX_SAFE_BYTES=$((CURRENT_BYTES + FREE_BYTES - RESERVED_BYTES))
+MAX_SAFE_GB=$((MAX_SAFE_BYTES / 1024 / 1024 / 1024))
+
+# Use the smaller of ideal target or max safe size
+if [[ $IDEAL_TARGET_BYTES -gt $MAX_SAFE_BYTES ]]; then
+    TARGET_BYTES=$MAX_SAFE_BYTES
+    TARGET_GB=$MAX_SAFE_GB
+    SPACE_LIMITED=true
+else
+    TARGET_BYTES=$IDEAL_TARGET_BYTES
+    TARGET_GB=$IDEAL_TARGET_GB
+    SPACE_LIMITED=false
+fi
+
+# Ensure target is positive and reasonable
+if [[ $TARGET_GB -lt 10 ]]; then
+    log_error "Insufficient space: ${FREE_GB}GB free, need at least 30GB (20GB reserved + 10GB minimum for xandeum-pages)"
+    log_status "Current xandeum-pages: ${CURRENT_GB}GB, Free space: ${FREE_GB}GB"
+    STATUS[xandeum_pages]="insufficient space"
+    ACTION[xandeum_pages]="MANUAL"
+else
+    if [[ -f "$XANDEUM_PAGES" ]]; then
+        # Calculate difference (allow 1GB tolerance)
+        DIFF_GB=$(( (TARGET_GB > CURRENT_GB) ? (TARGET_GB - CURRENT_GB) : (CURRENT_GB - TARGET_GB) ))
+        
+        if [[ $DIFF_GB -le 1 ]]; then
+            log_ok "/xandeum-pages exists: ${CURRENT_GB}GB (target: ${TARGET_GB}GB)"
+            STATUS[xandeum_pages]="${CURRENT_GB}GB"
+            ACTION[xandeum_pages]="none"
+        elif [[ $CURRENT_GB -lt $TARGET_GB ]]; then
+            # Growing - verify we have enough free space
+            GROW_BY=$((TARGET_GB - CURRENT_GB))
+            if [[ $FREE_GB -gt $((GROW_BY + RESERVED_GB)) ]]; then
+                log_status "/xandeum-pages is ${CURRENT_GB}GB, should be ${TARGET_GB}GB"
+                log_action "Grow /xandeum-pages by ${GROW_BY}GB (${FREE_GB}GB free, keeping ${RESERVED_GB}GB reserve)"
+                STATUS[xandeum_pages]="${CURRENT_GB}GB (undersized)"
+                ACTION[xandeum_pages]="grow to ${TARGET_GB}GB"
+                
+                if [[ "$DRY_RUN" == false ]]; then
+                    fallocate -l "${TARGET_BYTES}" "$XANDEUM_PAGES"
+                    log_ok "Grew /xandeum-pages to ${TARGET_GB}GB"
+                fi
+            else
+                log_warn "/xandeum-pages is ${CURRENT_GB}GB, ideal is ${IDEAL_TARGET_GB}GB but only ${FREE_GB}GB free"
+                log_status "Cannot grow - would leave less than ${RESERVED_GB}GB free"
+                STATUS[xandeum_pages]="${CURRENT_GB}GB (space limited)"
+                ACTION[xandeum_pages]="none (insufficient free space)"
+            fi
+        else
+            log_status "/xandeum-pages is ${CURRENT_GB}GB, should be ${TARGET_GB}GB"
+            log_action "Shrink /xandeum-pages by $((CURRENT_GB - TARGET_GB))GB"
+            STATUS[xandeum_pages]="${CURRENT_GB}GB (oversized)"
+            ACTION[xandeum_pages]="shrink to ${TARGET_GB}GB"
+            
+            if [[ "$DRY_RUN" == false ]]; then
+                truncate -s "${TARGET_BYTES}" "$XANDEUM_PAGES"
+                log_ok "Shrunk /xandeum-pages to ${TARGET_GB}GB"
+            fi
+        fi
+    else
+        # Creating new file - verify we have enough free space
+        if [[ $FREE_GB -gt $((TARGET_GB + RESERVED_GB)) ]]; then
+            log_status "/xandeum-pages does not exist"
+            log_action "Create /xandeum-pages at ${TARGET_GB}GB (${FREE_GB}GB free, keeping ${RESERVED_GB}GB reserve)"
+            STATUS[xandeum_pages]="missing"
+            ACTION[xandeum_pages]="create ${TARGET_GB}GB"
+            
+            if [[ "$DRY_RUN" == false ]]; then
+                fallocate -l "${TARGET_BYTES}" "$XANDEUM_PAGES"
+                chmod 600 "$XANDEUM_PAGES"
+                chown root:root "$XANDEUM_PAGES"
+                log_ok "Created /xandeum-pages at ${TARGET_GB}GB"
+            fi
+        else
+            log_error "Cannot create /xandeum-pages: only ${FREE_GB}GB free, need $((TARGET_GB + RESERVED_GB))GB"
+            STATUS[xandeum_pages]="cannot create"
+            ACTION[xandeum_pages]="MANUAL (free up space)"
+        fi
+    fi
+fi
+
+# ============================================
 # 24. WRITE VERSION MARKER
 # ============================================
 if [[ "$DRY_RUN" == false ]]; then
     log_section "Writing Version Marker"
-    
     mkdir -p "$MARKER_DIR"
     cat > "$MARKER_FILE" << EOF
 VERSION=${VERSION}
@@ -1277,7 +1303,7 @@ else
 fi
 
 echo ""
-echo -e "${BOLD}Component                  Status                Action${NC}"
+echo -e "${BOLD}Component                 Status               Action${NC}"
 echo "─────────────────────────────────────────────────────────────────"
 printf "%-25s %-20s %s\n" "ChillXand Sudo" "${STATUS[chillxand_user]:-unknown}" "${ACTION[chillxand_user]:-check}"
 printf "%-25s %-20s %s\n" "Update Notifier" "${STATUS[update_notifier]:-unknown}" "${ACTION[update_notifier]:-check}"
@@ -1303,6 +1329,7 @@ printf "%-25s %-20s %s\n" "Keypair" "${STATUS[keypair]:-unknown}" "${ACTION[keyp
 printf "%-25s %-20s %s\n" "SSH Hardening" "${STATUS[ssh]:-unknown}" "${ACTION[ssh]:-check}"
 printf "%-25s %-20s %s\n" "Xandeum Pages" "${STATUS[xandeum_pages]:-unknown}" "${ACTION[xandeum_pages]:-check}"
 printf "%-25s %-20s %s\n" "System Update" "-" "${ACTION[system_update]:-will update}"
+
 echo ""
 
 # Warnings
