@@ -42,6 +42,12 @@ EXPECTED_3001_IPS=(
     "85.215.145.173:Control2 Germany"
     "194.164.163.124:Control3 Spain"
 )
+# Optional port 6000 - only verified if rules exist, never added/removed
+OPTIONAL_6000_IPS=(
+    "74.208.234.116:Master USA"
+    "85.215.145.173:Control2 Germany"
+    "194.164.163.124:Control3 Spain"
+)
 
 # Usage
 usage() {
@@ -96,7 +102,7 @@ if [[ "$UBUNTU_MAJOR" != "24" ]]; then
     echo -e "${RED}║  ██████╗ ██║  ██║██║  ██║╚██████╔╝██║  ██║██╗                  ║${NC}"
     echo -e "${RED}║  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝                  ║${NC}"
     echo -e "${RED}║                                                                ║${NC}"
-    echo -e "${RED}║            THIS SCRIPT REQUIRES UBUNTU 24.x                   ║${NC}"
+    echo -e "${RED}║            THIS SCRIPT REQUIRES UBUNTU 24.x                    ║${NC}"
     echo -e "${RED}║            Detected version: ${UBUNTU_VERSION}                             ║${NC}"
     echo -e "${RED}╚════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -117,10 +123,10 @@ if ! id "chillxand" &>/dev/null; then
     echo -e "${RED}║  ██████╗ ██║  ██║██║  ██║╚██████╔╝██║  ██║██╗                  ║${NC}"
     echo -e "${RED}║  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝                  ║${NC}"
     echo -e "${RED}║                                                                ║${NC}"
-    echo -e "${RED}║            USER 'chillxand' DOES NOT EXIST                    ║${NC}"
+    echo -e "${RED}║            USER 'chillxand' DOES NOT EXIST                     ║${NC}"
     echo -e "${RED}║                                                                ║${NC}"
-    echo -e "${RED}║  This script requires the 'chillxand' user to exist.          ║${NC}"
-    echo -e "${RED}║  Please create the user first or run the pNode installer.     ║${NC}"
+    echo -e "${RED}║  This script requires the 'chillxand' user to exist.           ║${NC}"
+    echo -e "${RED}║  Please create the user first or run the pNode installer.      ║${NC}"
     echo -e "${RED}║                                                                ║${NC}"
     echo -e "${RED}╚════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -769,6 +775,59 @@ else
             log_ok "Port 3001 default deny in place"
         else
             UFW_ISSUES+=("Port 3001 missing default deny rule")
+        fi
+        
+        # Check optional port 6000 rules (only if any 6000 rules exist)
+        if echo "$UFW_NUMBERED" | grep -q "6000"; then
+            log_ok "Port 6000 rules detected (optional configuration)"
+            for ip_rule in "${OPTIONAL_6000_IPS[@]}"; do
+                ip="${ip_rule%%:*}"
+                desc="${ip_rule##*:}"
+                
+                if echo "$UFW_NUMBERED" | grep -q "6000.*$ip"; then
+                    log_ok "Port 6000 allowed from $ip ($desc)"
+                fi
+            done
+            
+            # Check 6000 deny rule
+            if echo "$UFW_NUMBERED" | grep -q "6000.*DENY"; then
+                log_ok "Port 6000 default deny in place"
+            fi
+        fi
+        
+        # Report any additional UFW rules not in expected configuration
+        log_section "Additional UFW Rules (informational)"
+        KNOWN_PORTS="22|5000|9001|80|3000|4000|8000|3001|6000"
+        KNOWN_IPS="74.208.234.116|85.215.145.173|194.164.163.124|127.0.0.1"
+        EXTRA_RULES_FOUND=false
+        
+        while IFS= read -r line; do
+            # Skip header lines and empty lines
+            [[ -z "$line" ]] && continue
+            [[ "$line" =~ ^Status: ]] && continue
+            [[ "$line" =~ ^Default: ]] && continue
+            [[ "$line" =~ ^Logging: ]] && continue
+            [[ "$line" =~ ^To ]] && continue
+            [[ "$line" =~ ^-- ]] && continue
+            [[ "$line" =~ ^\s*$ ]] && continue
+            
+            # Extract port number from the line
+            port_num=$(echo "$line" | grep -oE '^\s*[0-9]+' | tr -d ' ')
+            
+            # Skip if it's a known port
+            if [[ -n "$port_num" ]] && echo "$port_num" | grep -qE "^($KNOWN_PORTS)$"; then
+                continue
+            fi
+            
+            # This is an extra rule
+            if [[ "$EXTRA_RULES_FOUND" == false ]]; then
+                EXTRA_RULES_FOUND=true
+            fi
+            echo -e "  ${YELLOW}⚠${NC} $line"
+        done <<< "$UFW_STATUS"
+        
+        if [[ "$EXTRA_RULES_FOUND" == false ]]; then
+            log_ok "No additional rules outside expected configuration"
         fi
         
         if [[ ${#UFW_ISSUES[@]} -eq 0 ]]; then
