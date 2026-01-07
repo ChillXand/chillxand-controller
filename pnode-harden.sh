@@ -10,7 +10,7 @@
 set -e
 
 # Version
-VERSION="1.0.3"
+VERSION="1.0.5"
 MARKER_DIR="/etc/chillxand"
 MARKER_FILE="${MARKER_DIR}/pnode-harden.version"
 
@@ -38,12 +38,6 @@ EXPECTED_UFW_PORTS=(
 )
 EXPECTED_LOCALHOST_PORTS=("80" "3000" "4000" "8000")
 EXPECTED_3001_IPS=(
-    "74.208.234.116:Master USA"
-    "85.215.145.173:Control2 Germany"
-    "194.164.163.124:Control3 Spain"
-)
-# Optional port 6000 - only verified if rules exist, never added/removed
-OPTIONAL_6000_IPS=(
     "74.208.234.116:Master USA"
     "85.215.145.173:Control2 Germany"
     "194.164.163.124:Control3 Spain"
@@ -193,7 +187,7 @@ echo ""
 if [[ "$DRY_RUN" == true ]]; then
     echo -e "${YELLOW}╔════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${YELLOW}║                     DRY-RUN MODE                               ║${NC}"
-    echo -e "${YELLOW}║         No changes will be made. Use -x to execute.            ║${NC}"
+    echo -e "${YELLOW}║         No changes will be made. Use -x to execute.           ║${NC}"
     echo -e "${YELLOW}╚════════════════════════════════════════════════════════════════╝${NC}"
 else
     echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
@@ -777,59 +771,6 @@ else
             UFW_ISSUES+=("Port 3001 missing default deny rule")
         fi
         
-        # Check optional port 6000 rules (only if any 6000 rules exist)
-        if echo "$UFW_NUMBERED" | grep -q "6000"; then
-            log_ok "Port 6000 rules detected (optional configuration)"
-            for ip_rule in "${OPTIONAL_6000_IPS[@]}"; do
-                ip="${ip_rule%%:*}"
-                desc="${ip_rule##*:}"
-                
-                if echo "$UFW_NUMBERED" | grep -q "6000.*$ip"; then
-                    log_ok "Port 6000 allowed from $ip ($desc)"
-                fi
-            done
-            
-            # Check 6000 deny rule
-            if echo "$UFW_NUMBERED" | grep -q "6000.*DENY"; then
-                log_ok "Port 6000 default deny in place"
-            fi
-        fi
-        
-        # Report any additional UFW rules not in expected configuration
-        log_section "Additional UFW Rules (informational)"
-        KNOWN_PORTS="22|5000|9001|80|3000|4000|8000|3001|6000"
-        KNOWN_IPS="74.208.234.116|85.215.145.173|194.164.163.124|127.0.0.1"
-        EXTRA_RULES_FOUND=false
-        
-        while IFS= read -r line; do
-            # Skip header lines and empty lines
-            [[ -z "$line" ]] && continue
-            [[ "$line" =~ ^Status: ]] && continue
-            [[ "$line" =~ ^Default: ]] && continue
-            [[ "$line" =~ ^Logging: ]] && continue
-            [[ "$line" =~ ^To ]] && continue
-            [[ "$line" =~ ^-- ]] && continue
-            [[ "$line" =~ ^\s*$ ]] && continue
-            
-            # Extract port number from the line
-            port_num=$(echo "$line" | grep -oE '^\s*[0-9]+' | tr -d ' ')
-            
-            # Skip if it's a known port
-            if [[ -n "$port_num" ]] && echo "$port_num" | grep -qE "^($KNOWN_PORTS)$"; then
-                continue
-            fi
-            
-            # This is an extra rule
-            if [[ "$EXTRA_RULES_FOUND" == false ]]; then
-                EXTRA_RULES_FOUND=true
-            fi
-            echo -e "  ${YELLOW}⚠${NC} $line"
-        done <<< "$UFW_STATUS"
-        
-        if [[ "$EXTRA_RULES_FOUND" == false ]]; then
-            log_ok "No additional rules outside expected configuration"
-        fi
-        
         if [[ ${#UFW_ISSUES[@]} -eq 0 ]]; then
             STATUS[ufw]="verified"
             ACTION[ufw]="none"
@@ -1247,14 +1188,11 @@ fi
 log_section "Xandeum Pages Storage"
 
 XANDEUM_PAGES="/xandeum-pages"
-RESERVED_GB=20
-RESERVED_BYTES=$((RESERVED_GB * 1024 * 1024 * 1024))
+BUFFER_GB=12
+BUFFER_BYTES=$((BUFFER_GB * 1024 * 1024 * 1024))
+MIN_XANDEUM_GB=50  # Minimum viable xandeum-pages size
 
-# Get total disk size in bytes (root filesystem)
-TOTAL_BYTES=$(df -B1 / | awk 'NR==2 {print $2}')
-TOTAL_GB=$((TOTAL_BYTES / 1024 / 1024 / 1024))
-
-# Get current free space (what's actually available right now)
+# Get current free space
 FREE_BYTES=$(df -B1 / | awk 'NR==2 {print $4}')
 FREE_GB=$((FREE_BYTES / 1024 / 1024 / 1024))
 
@@ -1266,90 +1204,64 @@ else
 fi
 CURRENT_GB=$((CURRENT_BYTES / 1024 / 1024 / 1024))
 
-# Calculate ideal target size (total - reserved)
-IDEAL_TARGET_BYTES=$((TOTAL_BYTES - RESERVED_BYTES))
-IDEAL_TARGET_GB=$((IDEAL_TARGET_BYTES / 1024 / 1024 / 1024))
+# Dynamic calculation: use all available space minus buffer
+# TARGET = current_size + free_space - buffer
+TARGET_BYTES=$((CURRENT_BYTES + FREE_BYTES - BUFFER_BYTES))
+TARGET_GB=$((TARGET_BYTES / 1024 / 1024 / 1024))
 
-# Calculate maximum safe size based on what's actually available
-# Max we can grow to = current size + free space - reserved buffer
-MAX_SAFE_BYTES=$((CURRENT_BYTES + FREE_BYTES - RESERVED_BYTES))
-MAX_SAFE_GB=$((MAX_SAFE_BYTES / 1024 / 1024 / 1024))
+# Log current state
+log_status "Current: ${CURRENT_GB}GB, Free: ${FREE_GB}GB, Buffer: ${BUFFER_GB}GB"
 
-# Use the smaller of ideal target or max safe size
-if [[ $IDEAL_TARGET_BYTES -gt $MAX_SAFE_BYTES ]]; then
-    TARGET_BYTES=$MAX_SAFE_BYTES
-    TARGET_GB=$MAX_SAFE_GB
-    SPACE_LIMITED=true
-else
-    TARGET_BYTES=$IDEAL_TARGET_BYTES
-    TARGET_GB=$IDEAL_TARGET_GB
-    SPACE_LIMITED=false
-fi
-
-# Ensure target is positive and reasonable
-if [[ $TARGET_GB -lt 10 ]]; then
-    log_error "Insufficient space: ${FREE_GB}GB free, need at least 30GB (20GB reserved + 10GB minimum for xandeum-pages)"
-    log_status "Current xandeum-pages: ${CURRENT_GB}GB, Free space: ${FREE_GB}GB"
+# Ensure target is reasonable
+if [[ $TARGET_GB -lt $MIN_XANDEUM_GB ]]; then
+    log_error "Insufficient space: target would be ${TARGET_GB}GB (minimum: ${MIN_XANDEUM_GB}GB)"
+    log_warn "Free up space or reduce buffer"
     STATUS[xandeum_pages]="insufficient space"
     ACTION[xandeum_pages]="MANUAL"
-else
-    if [[ -f "$XANDEUM_PAGES" ]]; then
-        # Calculate difference (allow 1GB tolerance)
-        DIFF_GB=$(( (TARGET_GB > CURRENT_GB) ? (TARGET_GB - CURRENT_GB) : (CURRENT_GB - TARGET_GB) ))
+elif [[ -f "$XANDEUM_PAGES" ]]; then
+    # File exists - check if we need to resize
+    DIFF_GB=$(( (TARGET_GB > CURRENT_GB) ? (TARGET_GB - CURRENT_GB) : (CURRENT_GB - TARGET_GB) ))
+    
+    if [[ $DIFF_GB -le 1 ]]; then
+        # Within 1GB tolerance - no change needed
+        log_ok "/xandeum-pages is ${CURRENT_GB}GB (${FREE_GB}GB free, ${BUFFER_GB}GB buffer)"
+        STATUS[xandeum_pages]="${CURRENT_GB}GB"
+        ACTION[xandeum_pages]="none"
+    elif [[ $TARGET_GB -gt $CURRENT_GB ]]; then
+        # Grow to use available space
+        GROW_BY=$((TARGET_GB - CURRENT_GB))
+        log_action "Grow /xandeum-pages by ${GROW_BY}GB (${CURRENT_GB}GB → ${TARGET_GB}GB, leaving ${BUFFER_GB}GB free)"
+        STATUS[xandeum_pages]="${CURRENT_GB}GB"
+        ACTION[xandeum_pages]="grow to ${TARGET_GB}GB"
         
-        if [[ $DIFF_GB -le 1 ]]; then
-            log_ok "/xandeum-pages exists: ${CURRENT_GB}GB (target: ${TARGET_GB}GB)"
-            STATUS[xandeum_pages]="${CURRENT_GB}GB"
-            ACTION[xandeum_pages]="none"
-        elif [[ $CURRENT_GB -lt $TARGET_GB ]]; then
-            # Growing - verify we have enough free space
-            GROW_BY=$((TARGET_GB - CURRENT_GB))
-            if [[ $FREE_GB -gt $((GROW_BY + RESERVED_GB)) ]]; then
-                log_status "/xandeum-pages is ${CURRENT_GB}GB, should be ${TARGET_GB}GB"
-                log_action "Grow /xandeum-pages by ${GROW_BY}GB (${FREE_GB}GB free, keeping ${RESERVED_GB}GB reserve)"
-                STATUS[xandeum_pages]="${CURRENT_GB}GB (undersized)"
-                ACTION[xandeum_pages]="grow to ${TARGET_GB}GB"
-                
-                if [[ "$DRY_RUN" == false ]]; then
-                    fallocate -l "${TARGET_BYTES}" "$XANDEUM_PAGES"
-                    log_ok "Grew /xandeum-pages to ${TARGET_GB}GB"
-                fi
-            else
-                log_warn "/xandeum-pages is ${CURRENT_GB}GB, ideal is ${IDEAL_TARGET_GB}GB but only ${FREE_GB}GB free"
-                log_status "Cannot grow - would leave less than ${RESERVED_GB}GB free"
-                STATUS[xandeum_pages]="${CURRENT_GB}GB (space limited)"
-                ACTION[xandeum_pages]="none (insufficient free space)"
-            fi
-        else
-            log_status "/xandeum-pages is ${CURRENT_GB}GB, should be ${TARGET_GB}GB"
-            log_action "Shrink /xandeum-pages by $((CURRENT_GB - TARGET_GB))GB"
-            STATUS[xandeum_pages]="${CURRENT_GB}GB (oversized)"
-            ACTION[xandeum_pages]="shrink to ${TARGET_GB}GB"
-            
-            if [[ "$DRY_RUN" == false ]]; then
-                truncate -s "${TARGET_BYTES}" "$XANDEUM_PAGES"
-                log_ok "Shrunk /xandeum-pages to ${TARGET_GB}GB"
-            fi
+        if [[ "$DRY_RUN" == false ]]; then
+            fallocate -l "${TARGET_BYTES}" "$XANDEUM_PAGES"
+            log_ok "Grew /xandeum-pages to ${TARGET_GB}GB"
         fi
     else
-        # Creating new file - verify we have enough free space
-        if [[ $FREE_GB -gt $((TARGET_GB + RESERVED_GB)) ]]; then
-            log_status "/xandeum-pages does not exist"
-            log_action "Create /xandeum-pages at ${TARGET_GB}GB (${FREE_GB}GB free, keeping ${RESERVED_GB}GB reserve)"
-            STATUS[xandeum_pages]="missing"
-            ACTION[xandeum_pages]="create ${TARGET_GB}GB"
-            
-            if [[ "$DRY_RUN" == false ]]; then
-                fallocate -l "${TARGET_BYTES}" "$XANDEUM_PAGES"
-                chmod 600 "$XANDEUM_PAGES"
-                chown root:root "$XANDEUM_PAGES"
-                log_ok "Created /xandeum-pages at ${TARGET_GB}GB"
-            fi
-        else
-            log_error "Cannot create /xandeum-pages: only ${FREE_GB}GB free, need $((TARGET_GB + RESERVED_GB))GB"
-            STATUS[xandeum_pages]="cannot create"
-            ACTION[xandeum_pages]="MANUAL (free up space)"
+        # Shrink (unusual - only if buffer was increased or space needed)
+        SHRINK_BY=$((CURRENT_GB - TARGET_GB))
+        log_action "Shrink /xandeum-pages by ${SHRINK_BY}GB (${CURRENT_GB}GB → ${TARGET_GB}GB)"
+        STATUS[xandeum_pages]="${CURRENT_GB}GB (oversized)"
+        ACTION[xandeum_pages]="shrink to ${TARGET_GB}GB"
+        
+        if [[ "$DRY_RUN" == false ]]; then
+            truncate -s "${TARGET_BYTES}" "$XANDEUM_PAGES"
+            log_ok "Shrunk /xandeum-pages to ${TARGET_GB}GB"
         fi
+    fi
+else
+    # Create new file
+    log_status "/xandeum-pages does not exist"
+    log_action "Create /xandeum-pages at ${TARGET_GB}GB (leaving ${BUFFER_GB}GB free)"
+    STATUS[xandeum_pages]="missing"
+    ACTION[xandeum_pages]="create ${TARGET_GB}GB"
+    
+    if [[ "$DRY_RUN" == false ]]; then
+        fallocate -l "${TARGET_BYTES}" "$XANDEUM_PAGES"
+        chmod 600 "$XANDEUM_PAGES"
+        chown root:root "$XANDEUM_PAGES"
+        log_ok "Created /xandeum-pages at ${TARGET_GB}GB"
     fi
 fi
 
