@@ -10,7 +10,7 @@
 set -e
 
 # Version
-VERSION="1.0.5"
+VERSION="1.0.6"
 MARKER_DIR="/etc/chillxand"
 MARKER_FILE="${MARKER_DIR}/pnode-harden.version"
 
@@ -1183,7 +1183,51 @@ else
 fi
 
 # ============================================
-# 23. XANDEUM-PAGES STORAGE
+# 23. REDUCE EXT4 RESERVED BLOCKS
+# ============================================
+log_section "Ext4 Reserved Blocks"
+
+# Get root device
+ROOT_DEV=$(df / | awk 'NR==2 {print $1}')
+
+if [[ -b "$ROOT_DEV" ]]; then
+    # Get current reserved block percentage
+    RESERVED_PCT=$(tune2fs -l "$ROOT_DEV" 2>/dev/null | grep "Reserved block count" | head -1)
+    BLOCK_COUNT=$(tune2fs -l "$ROOT_DEV" 2>/dev/null | grep "Block count:" | awk '{print $3}')
+    RESERVED_COUNT=$(tune2fs -l "$ROOT_DEV" 2>/dev/null | grep "Reserved block count:" | awk '{print $4}')
+    
+    if [[ -n "$BLOCK_COUNT" && -n "$RESERVED_COUNT" && "$BLOCK_COUNT" -gt 0 ]]; then
+        CURRENT_RESERVED_PCT=$(awk "BEGIN {printf \"%.1f\", ($RESERVED_COUNT / $BLOCK_COUNT) * 100}")
+        
+        # Check if greater than 1%
+        if awk "BEGIN {exit !($CURRENT_RESERVED_PCT > 1.5)}"; then
+            log_status "Reserved blocks at ${CURRENT_RESERVED_PCT}% on $ROOT_DEV"
+            log_action "Reduce reserved blocks from ${CURRENT_RESERVED_PCT}% to 1%"
+            STATUS[reserved_blocks]="${CURRENT_RESERVED_PCT}%"
+            ACTION[reserved_blocks]="reduce to 1%"
+            
+            if [[ "$DRY_RUN" == false ]]; then
+                tune2fs -m 1 "$ROOT_DEV"
+                log_ok "Reduced reserved blocks to 1%"
+            fi
+        else
+            log_ok "Reserved blocks already at ${CURRENT_RESERVED_PCT}% on $ROOT_DEV"
+            STATUS[reserved_blocks]="${CURRENT_RESERVED_PCT}%"
+            ACTION[reserved_blocks]="none"
+        fi
+    else
+        log_warn "Could not read reserved block info from $ROOT_DEV"
+        STATUS[reserved_blocks]="unknown"
+        ACTION[reserved_blocks]="skip"
+    fi
+else
+    log_warn "Root device $ROOT_DEV not found or not a block device"
+    STATUS[reserved_blocks]="unknown"
+    ACTION[reserved_blocks]="skip"
+fi
+
+# ============================================
+# 24. XANDEUM-PAGES STORAGE
 # ============================================
 log_section "Xandeum Pages Storage"
 
@@ -1266,7 +1310,7 @@ else
 fi
 
 # ============================================
-# 24. WRITE VERSION MARKER
+# 25. WRITE VERSION MARKER
 # ============================================
 if [[ "$DRY_RUN" == false ]]; then
     log_section "Writing Version Marker"
@@ -1319,6 +1363,7 @@ printf "%-25s %-20s %s\n" "Cron Restriction" "${STATUS[cron_restrict]:-unknown}"
 printf "%-25s %-20s %s\n" "UI/Desktop" "${STATUS[ui]:-unknown}" "${ACTION[ui]:-check}"
 printf "%-25s %-20s %s\n" "Keypair" "${STATUS[keypair]:-unknown}" "${ACTION[keypair]:-check}"
 printf "%-25s %-20s %s\n" "SSH Hardening" "${STATUS[ssh]:-unknown}" "${ACTION[ssh]:-check}"
+printf "%-25s %-20s %s\n" "Reserved Blocks" "${STATUS[reserved_blocks]:-unknown}" "${ACTION[reserved_blocks]:-check}"
 printf "%-25s %-20s %s\n" "Xandeum Pages" "${STATUS[xandeum_pages]:-unknown}" "${ACTION[xandeum_pages]:-check}"
 printf "%-25s %-20s %s\n" "System Update" "-" "${ACTION[system_update]:-will update}"
 
