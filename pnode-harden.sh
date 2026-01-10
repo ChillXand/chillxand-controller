@@ -10,7 +10,9 @@
 set -e
 
 # Version
-VERSION="1.0.8"
+VERSION="1.0.9"
+SCRIPT_URL="https://raw.githubusercontent.com/chillxand/chillxand-controller/main/pnode-harden.sh"
+INSTALL_PATH="/usr/local/bin/pnode-harden"
 MARKER_DIR="/etc/chillxand"
 MARKER_FILE="${MARKER_DIR}/pnode-harden.version"
 
@@ -47,31 +49,126 @@ EXPECTED_3001_IPS=(
 usage() {
     echo "ChillXand pNode Hardening Script v${VERSION}"
     echo ""
-    echo "Usage: $0 [-x] [-t <token>]"
+    echo "Usage: $0 [-x] [-u] [-t <token>]"
     echo ""
     echo "Default mode is DRY-RUN - shows what would be changed without making changes."
     echo ""
     echo "Options:"
     echo "  -x              Execute changes (default is dry-run)"
+    echo "  -u              Update to latest version from GitHub"
     echo "  -t <token>      Ubuntu Pro token (optional, required only if Pro not attached)"
     echo "  -h              Show this help message"
     echo ""
     echo "Examples:"
     echo "  $0              # Dry-run, see what would change"
     echo "  $0 -x           # Execute (if Ubuntu Pro already attached)"
+    echo "  $0 -u           # Update script to latest version"
     echo "  $0 -x -t 'C1xxx...'  # Execute with Ubuntu Pro token"
     exit 0
 }
 
+# Self-update function
+self_update() {
+    echo ""
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║              pnode-harden Self-Update                          ║${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  Current version: ${BOLD}v${VERSION}${NC}"
+    echo ""
+    
+    # Download to temp file
+    TEMP_FILE=$(mktemp)
+    
+    echo -e "  ${CYAN}Downloading latest version...${NC}"
+    
+    if command -v curl &>/dev/null; then
+        if ! curl -sSL "$SCRIPT_URL" -o "$TEMP_FILE" 2>/dev/null; then
+            echo -e "  ${RED}✗${NC} Failed to download update"
+            rm -f "$TEMP_FILE"
+            exit 1
+        fi
+    elif command -v wget &>/dev/null; then
+        if ! wget -qO "$TEMP_FILE" "$SCRIPT_URL" 2>/dev/null; then
+            echo -e "  ${RED}✗${NC} Failed to download update"
+            rm -f "$TEMP_FILE"
+            exit 1
+        fi
+    else
+        echo -e "  ${RED}✗${NC} Neither curl nor wget found"
+        exit 1
+    fi
+    
+    # Verify download
+    if [[ ! -s "$TEMP_FILE" ]]; then
+        echo -e "  ${RED}✗${NC} Downloaded file is empty"
+        rm -f "$TEMP_FILE"
+        exit 1
+    fi
+    
+    # Check it's a valid bash script
+    if ! head -1 "$TEMP_FILE" | grep -q "^#!/bin/bash"; then
+        echo -e "  ${RED}✗${NC} Downloaded file is not a valid bash script"
+        rm -f "$TEMP_FILE"
+        exit 1
+    fi
+    
+    # Get new version
+    NEW_VERSION=$(grep -oP '^VERSION="\K[^"]+' "$TEMP_FILE" | head -1 || echo "unknown")
+    
+    if [[ "$NEW_VERSION" == "$VERSION" ]]; then
+        echo -e "  ${GREEN}✓${NC} Already running latest version (v${VERSION})"
+        rm -f "$TEMP_FILE"
+        exit 0
+    fi
+    
+    echo -e "  ${GREEN}✓${NC} New version available: ${BOLD}v${NEW_VERSION}${NC}"
+    
+    # Determine install location
+    SCRIPT_PATH="$0"
+    if [[ "$SCRIPT_PATH" == "/usr/local/bin/pnode-harden" ]]; then
+        INSTALL_TARGET="$SCRIPT_PATH"
+    elif [[ -f "$INSTALL_PATH" ]]; then
+        INSTALL_TARGET="$INSTALL_PATH"
+    else
+        INSTALL_TARGET="$INSTALL_PATH"
+    fi
+    
+    echo -e "  ${CYAN}Installing to:${NC} $INSTALL_TARGET"
+    
+    # Install
+    mv "$TEMP_FILE" "$INSTALL_TARGET"
+    chmod +x "$INSTALL_TARGET"
+    
+    echo ""
+    echo -e "  ${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "  ${GREEN}║  Updated: v${VERSION} → v${NEW_VERSION}                               ${NC}"
+    echo -e "  ${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    exit 0
+}
+
 # Parse arguments
-while getopts "xt:h" opt; do
+DO_UPDATE=false
+while getopts "xut:h" opt; do
     case $opt in
         x) DRY_RUN=false ;;
+        u) DO_UPDATE=true ;;
         t) PRO_TOKEN="$OPTARG" ;;
         h) usage ;;
         *) usage ;;
     esac
 done
+
+# Handle update before root check (update needs root but we want nice error)
+if [[ "$DO_UPDATE" == true ]]; then
+    if [[ $EUID -ne 0 ]]; then
+        echo -e "${RED}Error: Update requires root (use sudo)${NC}"
+        exit 1
+    fi
+    self_update
+fi
 
 # Check if running as root
 if [[ $EUID -ne 0 ]]; then
@@ -521,7 +618,18 @@ en
 en_US
 en_US.UTF-8
 EOF
+            # Run localepurge to clean package locale files
             localepurge 2>/dev/null || true
+            
+            # Check if locales were actually cleaned
+            NEW_LOCALE_COUNT=$(locale -a 2>/dev/null | wc -l)
+            if [[ $NEW_LOCALE_COUNT -gt 10 ]]; then
+                # Fallback: regenerate locale archive with only en_US.UTF-8
+                log_warn "localepurge insufficient ($NEW_LOCALE_COUNT locales), using locale-gen --purge"
+                sed -i '/^[^#]/d' /etc/locale.gen 2>/dev/null || true
+                echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
+                locale-gen --purge en_US.UTF-8 2>/dev/null || true
+            fi
         fi
     else
         log_ok "Locales already minimal ($LOCALE_COUNT)"
