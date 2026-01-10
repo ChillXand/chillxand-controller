@@ -10,7 +10,7 @@
 set -e
 
 # Version
-VERSION="1.0.7"
+VERSION="1.0.8"
 MARKER_DIR="/etc/chillxand"
 MARKER_FILE="${MARKER_DIR}/pnode-harden.version"
 
@@ -874,18 +874,8 @@ log_section "Kernel Sysctl Hardening & Network Tuning"
 
 SYSCTL_CONF="/etc/sysctl.d/99-chillxand-hardening.conf"
 
-if [[ -f "$SYSCTL_CONF" ]]; then
-    log_ok "Kernel hardening sysctl already configured"
-    STATUS[sysctl]="configured"
-    ACTION[sysctl]="none"
-else
-    log_status "Kernel hardening not configured"
-    log_action "Apply sysctl security settings"
-    STATUS[sysctl]="not configured"
-    ACTION[sysctl]="configure"
-    
-    if [[ "$DRY_RUN" == false ]]; then
-        cat > "$SYSCTL_CONF" << 'EOF'
+# Define the desired sysctl configuration
+read -r -d '' DESIRED_SYSCTL_CONFIG << 'EOF' || true
 # ChillXand pNode Kernel Hardening
 
 # Disable IP forwarding (not a router)
@@ -953,7 +943,35 @@ net.ipv4.tcp_tw_reuse = 1
 net.core.somaxconn = 65535
 net.core.netdev_max_backlog = 65535
 EOF
+
+# Check if file exists and compare contents
+if [[ -f "$SYSCTL_CONF" ]]; then
+    CURRENT_SYSCTL=$(cat "$SYSCTL_CONF")
+    if [[ "$CURRENT_SYSCTL" == "$DESIRED_SYSCTL_CONFIG" ]]; then
+        log_ok "Kernel hardening & network tuning already configured"
+        STATUS[sysctl]="configured"
+        ACTION[sysctl]="none"
+    else
+        log_status "Sysctl config exists but differs from expected"
+        log_action "Update sysctl config (adds network tuning)"
+        STATUS[sysctl]="outdated"
+        ACTION[sysctl]="update"
+        if [[ "$DRY_RUN" == false ]]; then
+            echo "$DESIRED_SYSCTL_CONFIG" > "$SYSCTL_CONF"
+            sysctl -p "$SYSCTL_CONF" 2>/dev/null || true
+            log_ok "Updated sysctl config and applied settings"
+        fi
+    fi
+else
+    log_status "Kernel hardening not configured"
+    log_action "Apply sysctl security and network tuning settings"
+    STATUS[sysctl]="not configured"
+    ACTION[sysctl]="configure"
+    
+    if [[ "$DRY_RUN" == false ]]; then
+        echo "$DESIRED_SYSCTL_CONFIG" > "$SYSCTL_CONF"
         sysctl -p "$SYSCTL_CONF" 2>/dev/null || true
+        log_ok "Created sysctl config and applied settings"
     fi
 fi
 
@@ -1121,7 +1139,6 @@ fi
 
 # ============================================
 # 20. UI/DESKTOP REMOVAL
-# ============================================
 # ============================================
 log_section "UI/Desktop Components"
 
