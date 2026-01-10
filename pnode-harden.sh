@@ -10,7 +10,7 @@
 set -e
 
 # Version
-VERSION="1.0.6"
+VERSION="1.0.7"
 MARKER_DIR="/etc/chillxand"
 MARKER_FILE="${MARKER_DIR}/pnode-harden.version"
 
@@ -166,20 +166,6 @@ log_error() {
     echo -e "  ${RED}✗${NC} $1"
 }
 
-# Helper: Set config value idempotently for unattended-upgrades
-set_unattended_config() {
-    local file="$1"
-    local setting="$2"
-    local value="$3"
-    local setting_regex=$(echo "$setting" | sed 's/::/\\:\\:/g')
-    
-    if grep -qE "^[[:space:]]*(//)?[[:space:]]*${setting_regex}" "$file" 2>/dev/null; then
-        sed -i -E "s|^[[:space:]]*(//)?[[:space:]]*(${setting_regex}).*|${setting} \"${value}\";|" "$file"
-    else
-        echo "${setting} \"${value}\";" >> "$file"
-    fi
-}
-
 # ============================================
 # MODE BANNER
 # ============================================
@@ -273,7 +259,8 @@ fi
 # ============================================
 log_section "Ubuntu Pro & LivePatch"
 
-if pro status 2>/dev/null | grep -q "Subscription: Ubuntu Pro"; then
+# Check for enabled Pro services OR Account line (both prove Pro is attached)
+if pro status 2>/dev/null | grep -qE "(^(esm-|livepatch)[[:space:]]+yes[[:space:]]+enabled|^Account:)"; then
     log_ok "Ubuntu Pro is attached"
     STATUS[ubuntu_pro]="attached"
     ACTION[ubuntu_pro]="none"
@@ -306,8 +293,9 @@ fi
 # ============================================
 log_section "Unattended Upgrades"
 
-UNATTENDED_CONF="/etc/apt/apt.conf.d/50unattended-upgrades"
+UNATTENDED_CONF="/etc/apt/apt.conf.d/99-chillxand-unattended.conf"
 
+# Ensure package is installed
 if dpkg -l 2>/dev/null | grep -q "unattended-upgrades"; then
     log_ok "unattended-upgrades package is installed"
     STATUS[unattended_pkg]="installed"
@@ -323,32 +311,61 @@ else
     fi
 fi
 
-# Check config settings
-SETTINGS_TO_CHECK=(
-    "Remove-Unused-Kernel-Packages:true"
-    "Remove-Unused-Dependencies:true"
-    "Automatic-Reboot:false"
-)
+# Define our desired config
+read -r -d '' DESIRED_UNATTENDED_CONFIG << 'EOF' || true
+// ChillXand pNode Unattended Upgrades Configuration
+// This file overrides settings in 50unattended-upgrades
 
-for setting_pair in "${SETTINGS_TO_CHECK[@]}"; do
-    setting_name="${setting_pair%%:*}"
-    expected_value="${setting_pair##*:}"
-    
-    # Extract value, strip quotes, semicolons, and whitespace
-    current=$(grep -E "^Unattended-Upgrade::${setting_name}" "$UNATTENDED_CONF" 2>/dev/null | \
-              sed 's/.*"\([^"]*\)".*/\1/' | tr -d ' ;' || echo "not set")
-    
-    if [[ "$current" == "$expected_value" ]]; then
-        log_ok "$setting_name = $expected_value"
+// Enable updates from these origins
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}";
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}:${distro_codename}-updates";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+};
+
+// Cleanup settings
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+// Don't auto-reboot - pNode needs to stay running
+Unattended-Upgrade::Automatic-Reboot "false";
+EOF
+
+# Check if our config file exists and matches
+if [[ -f "$UNATTENDED_CONF" ]]; then
+    # Check if key settings are present
+    if grep -q "Remove-Unused-Kernel-Packages.*true" "$UNATTENDED_CONF" && \
+       grep -q "Remove-Unused-Dependencies.*true" "$UNATTENDED_CONF" && \
+       grep -q "Automatic-Reboot.*false" "$UNATTENDED_CONF" && \
+       grep -q "distro_codename}-updates" "$UNATTENDED_CONF"; then
+        log_ok "ChillXand unattended config is in place"
+        log_ok "Origins: security, updates, ESM enabled"
+        log_ok "Remove-Unused-Kernel-Packages = true"
+        log_ok "Remove-Unused-Dependencies = true"
+        log_ok "Automatic-Reboot = false"
+        STATUS[unattended_conf]="configured"
+        ACTION[unattended_conf]="none"
     else
-        log_status "$setting_name = $current (expected: $expected_value)"
-        log_action "Set $setting_name = $expected_value"
+        log_status "ChillXand unattended config exists but incomplete"
+        log_action "Update unattended config"
+        STATUS[unattended_conf]="incomplete"
+        ACTION[unattended_conf]="update"
         if [[ "$DRY_RUN" == false ]]; then
-            [[ ! -f "${UNATTENDED_CONF}.backup" ]] && cp "$UNATTENDED_CONF" "${UNATTENDED_CONF}.backup"
-            set_unattended_config "$UNATTENDED_CONF" "Unattended-Upgrade::${setting_name}" "$expected_value"
+            echo "$DESIRED_UNATTENDED_CONFIG" > "$UNATTENDED_CONF"
         fi
     fi
-done
+else
+    log_status "ChillXand unattended config not present"
+    log_action "Create /etc/apt/apt.conf.d/99-chillxand-unattended.conf"
+    STATUS[unattended_conf]="missing"
+    ACTION[unattended_conf]="create"
+    if [[ "$DRY_RUN" == false ]]; then
+        echo "$DESIRED_UNATTENDED_CONFIG" > "$UNATTENDED_CONF"
+        log_ok "Created $UNATTENDED_CONF"
+    fi
+fi
 
 # ============================================
 # 5. LOGROTATE
@@ -699,100 +716,161 @@ EOF
 fi
 
 # ============================================
-# 13. UFW VERIFICATION
+# 13. UFW FIREWALL
 # ============================================
-log_section "UFW Firewall Verification"
+log_section "UFW Firewall"
 
-UFW_ISSUES=()
+UFW_CHANGES_MADE=false
 
+# Install UFW if not present
 if ! command -v ufw &>/dev/null; then
-    log_error "UFW not installed"
-    STATUS[ufw]="not installed"
-    ACTION[ufw]="MANUAL: install ufw"
+    log_status "UFW not installed"
+    log_action "Install UFW"
+    if [[ "$DRY_RUN" == false ]]; then
+        apt update
+        apt install -y ufw
+    fi
+    UFW_CHANGES_MADE=true
 else
-    UFW_STATUS=$(ufw status verbose 2>/dev/null)
+    log_ok "UFW is installed"
+fi
+
+# Get current status
+UFW_STATUS=$(ufw status verbose 2>/dev/null)
+UFW_RULES=$(ufw status numbered 2>/dev/null)
+
+# Check if UFW is active
+if ! echo "$UFW_STATUS" | grep -q "Status: active"; then
+    log_status "UFW is not active"
+    log_action "Enable UFW (will ensure SSH is allowed first)"
+    if [[ "$DRY_RUN" == false ]]; then
+        # CRITICAL: Allow SSH before enabling UFW to prevent lockout
+        ufw allow 22/tcp comment 'SSH'
+        # Set default policies
+        ufw default deny incoming
+        ufw default allow outgoing
+        # Enable UFW non-interactively
+        echo "y" | ufw enable
+        UFW_CHANGES_MADE=true
+        # Refresh status
+        UFW_STATUS=$(ufw status verbose 2>/dev/null)
+        UFW_RULES=$(ufw status numbered 2>/dev/null)
+    fi
+else
+    log_ok "UFW is active"
+fi
+
+# Check and fix default policies
+if ! echo "$UFW_STATUS" | grep -q "Default:.*deny (incoming)"; then
+    log_status "Default incoming policy is not 'deny'"
+    log_action "Set default incoming to deny"
+    if [[ "$DRY_RUN" == false ]]; then
+        ufw default deny incoming
+        UFW_CHANGES_MADE=true
+    fi
+else
+    log_ok "Default deny incoming"
+fi
+
+if ! echo "$UFW_STATUS" | grep -q "Default:.*allow (outgoing)"; then
+    log_status "Default outgoing policy is not 'allow'"
+    log_action "Set default outgoing to allow"
+    if [[ "$DRY_RUN" == false ]]; then
+        ufw default allow outgoing
+        UFW_CHANGES_MADE=true
+    fi
+else
+    log_ok "Default allow outgoing"
+fi
+
+# Check and add public port rules
+for rule in "${EXPECTED_UFW_PORTS[@]}"; do
+    port="${rule%%:*}"
+    rest="${rule#*:}"
+    desc="${rest##*:}"
     
-    if echo "$UFW_STATUS" | grep -q "Status: active"; then
-        log_ok "UFW is active"
-        
-        # Check default policies
-        if echo "$UFW_STATUS" | grep -q "Default:.*deny (incoming)"; then
-            log_ok "Default deny incoming"
-        else
-            UFW_ISSUES+=("Default incoming not set to deny")
-        fi
-        
-        if echo "$UFW_STATUS" | grep -q "Default:.*allow (outgoing)"; then
-            log_ok "Default allow outgoing"
-        else
-            UFW_ISSUES+=("Default outgoing not set to allow")
-        fi
-        
-        # Check required public ports
-        UFW_NUMBERED=$(ufw status 2>/dev/null)
-        
-        for rule in "${EXPECTED_UFW_PORTS[@]}"; do
-            port="${rule%%:*}"
-            rest="${rule#*:}"
-            desc="${rest##*:}"
-            
-            if echo "$UFW_NUMBERED" | grep -q "$port.*ALLOW.*Anywhere"; then
-                log_ok "Port $port open ($desc)"
-            else
-                UFW_ISSUES+=("Port $port not open ($desc)")
-            fi
-        done
-        
-        # Check localhost ports
-        for port in "${EXPECTED_LOCALHOST_PORTS[@]}"; do
-            if echo "$UFW_NUMBERED" | grep -q "$port.*127.0.0.1"; then
-                log_ok "Port $port localhost only"
-            else
-                UFW_ISSUES+=("Port $port should be localhost only")
-            fi
-        done
-        
-        # Check 3001 IP rules
-        for ip_rule in "${EXPECTED_3001_IPS[@]}"; do
-            ip="${ip_rule%%:*}"
-            desc="${ip_rule##*:}"
-            
-            if echo "$UFW_NUMBERED" | grep -q "3001.*$ip"; then
-                log_ok "Port 3001 allowed from $ip ($desc)"
-            else
-                UFW_ISSUES+=("Port 3001 missing rule for $ip ($desc)")
-            fi
-        done
-        
-        # Check 3001 deny rule
-        if echo "$UFW_NUMBERED" | grep -q "3001.*DENY"; then
-            log_ok "Port 3001 default deny in place"
-        else
-            UFW_ISSUES+=("Port 3001 missing default deny rule")
-        fi
-        
-        if [[ ${#UFW_ISSUES[@]} -eq 0 ]]; then
-            STATUS[ufw]="verified"
-            ACTION[ufw]="none"
-        else
-            STATUS[ufw]="${#UFW_ISSUES[@]} issues"
-            ACTION[ufw]="MANUAL FIX"
-            log_warn "UFW issues found:"
-            for issue in "${UFW_ISSUES[@]}"; do
-                log_warn "  - $issue"
-            done
-        fi
+    if echo "$UFW_RULES" | grep -q "$port.*ALLOW.*Anywhere"; then
+        log_ok "Port $port open ($desc)"
     else
-        log_error "UFW is not active"
-        STATUS[ufw]="inactive"
-        ACTION[ufw]="MANUAL: enable ufw"
+        log_status "Port $port not open ($desc)"
+        log_action "Allow $port from anywhere"
+        if [[ "$DRY_RUN" == false ]]; then
+            ufw allow "$port" comment "$desc"
+            UFW_CHANGES_MADE=true
+        fi
+    fi
+done
+
+# Check and add localhost-only rules
+for port in "${EXPECTED_LOCALHOST_PORTS[@]}"; do
+    if echo "$UFW_RULES" | grep -q "$port.*ALLOW.*127.0.0.1"; then
+        log_ok "Port $port localhost only"
+    else
+        log_status "Port $port not restricted to localhost"
+        log_action "Allow port $port from localhost only"
+        if [[ "$DRY_RUN" == false ]]; then
+            # First, delete any existing rules for this port that allow from anywhere
+            # We need to be careful here - get rule numbers and delete from highest to lowest
+            RULE_NUMS=$(ufw status numbered 2>/dev/null | grep -E "^\[.*\].*$port" | grep -v "127.0.0.1" | sed 's/\[\s*\([0-9]*\)\].*/\1/' | sort -rn)
+            for num in $RULE_NUMS; do
+                echo "y" | ufw delete "$num" 2>/dev/null || true
+            done
+            # Now add the localhost-only rule
+            ufw allow from 127.0.0.1 to any port "$port" comment "Localhost only"
+            UFW_CHANGES_MADE=true
+        fi
+    fi
+done
+
+# Check and add 3001 IP-specific rules
+for ip_rule in "${EXPECTED_3001_IPS[@]}"; do
+    ip="${ip_rule%%:*}"
+    desc="${ip_rule##*:}"
+    
+    if echo "$UFW_RULES" | grep -q "3001.*ALLOW.*$ip"; then
+        log_ok "Port 3001 allowed from $ip ($desc)"
+    else
+        log_status "Port 3001 missing rule for $ip ($desc)"
+        log_action "Allow 3001 from $ip"
+        if [[ "$DRY_RUN" == false ]]; then
+            ufw allow from "$ip" to any port 3001 comment "$desc"
+            UFW_CHANGES_MADE=true
+        fi
+    fi
+done
+
+# Check and add 3001 deny rule (must come after allow rules)
+if echo "$UFW_RULES" | grep -q "3001.*DENY"; then
+    log_ok "Port 3001 default deny in place"
+else
+    log_status "Port 3001 missing default deny rule"
+    log_action "Add deny rule for port 3001"
+    if [[ "$DRY_RUN" == false ]]; then
+        ufw deny 3001 comment "Deny all other 3001 access"
+        UFW_CHANGES_MADE=true
     fi
 fi
 
+# Set final status
+if [[ "$UFW_CHANGES_MADE" == true ]]; then
+    if [[ "$DRY_RUN" == true ]]; then
+        STATUS[ufw]="needs config"
+        ACTION[ufw]="configure"
+    else
+        STATUS[ufw]="configured"
+        ACTION[ufw]="updated"
+        # Reload to apply changes
+        ufw reload
+    fi
+else
+    STATUS[ufw]="verified"
+    ACTION[ufw]="none"
+fi
+
 # ============================================
-# 14. KERNEL SYSCTL HARDENING
+# 14. KERNEL SYSCTL HARDENING & NETWORK TUNING
 # ============================================
-log_section "Kernel Sysctl Hardening"
+log_section "Kernel Sysctl Hardening & Network Tuning"
 
 SYSCTL_CONF="/etc/sysctl.d/99-chillxand-hardening.conf"
 
@@ -848,6 +926,32 @@ kernel.dmesg_restrict = 1
 
 # Disable magic SysRq key
 kernel.sysrq = 0
+
+# ═══════════════════════════════════════════
+# NETWORK PERFORMANCE (Critical for pNode UDP)
+# ═══════════════════════════════════════════
+
+# Increase UDP buffer sizes (prevents RcvbufErrors)
+net.core.rmem_max = 26214400
+net.core.rmem_default = 26214400
+net.core.wmem_max = 26214400
+net.core.wmem_default = 26214400
+
+# Increase connection tracking limit
+net.netfilter.nf_conntrack_max = 262144
+
+# Reduce swappiness (prefer RAM over swap)
+vm.swappiness = 10
+
+# Increase local port range
+net.ipv4.ip_local_port_range = 1024 65535
+
+# Reuse TIME_WAIT sockets faster
+net.ipv4.tcp_tw_reuse = 1
+
+# Increase socket backlog for high connection rates
+net.core.somaxconn = 65535
+net.core.netdev_max_backlog = 65535
 EOF
         sysctl -p "$SYSCTL_CONF" 2>/dev/null || true
     fi
@@ -983,7 +1087,41 @@ EOF
 fi
 
 # ============================================
-# 19. UI/DESKTOP REMOVAL
+# 19. FILE DESCRIPTOR LIMITS
+# ============================================
+log_section "File Descriptor Limits"
+
+LIMITS_CONF="/etc/security/limits.d/99-chillxand.conf"
+
+if [[ -f "$LIMITS_CONF" ]] && grep -q "nofile" "$LIMITS_CONF" 2>/dev/null; then
+    log_ok "File descriptor limits already configured"
+    STATUS[fd_limits]="configured"
+    ACTION[fd_limits]="none"
+else
+    log_status "File descriptor limits not configured"
+    log_action "Set nofile limits to 65535"
+    STATUS[fd_limits]="default"
+    ACTION[fd_limits]="configure"
+    
+    if [[ "$DRY_RUN" == false ]]; then
+        cat > "$LIMITS_CONF" << 'EOF'
+# ChillXand pNode - Increased file descriptor limits
+# Prevents "too many open files" errors under load
+
+* soft nofile 65535
+* hard nofile 65535
+root soft nofile 65535
+root hard nofile 65535
+chillxand soft nofile 65535
+chillxand hard nofile 65535
+EOF
+        log_ok "Created $LIMITS_CONF"
+    fi
+fi
+
+# ============================================
+# 20. UI/DESKTOP REMOVAL
+# ============================================
 # ============================================
 log_section "UI/Desktop Components"
 
@@ -1058,7 +1196,7 @@ else
 fi
 
 # ============================================
-# 20. KEYPAIR SECURITY
+# 21. KEYPAIR SECURITY
 # ============================================
 log_section "pNode Keypair Security"
 
@@ -1089,7 +1227,7 @@ else
 fi
 
 # ============================================
-# 21. SSH HARDENING
+# 22. SSH HARDENING
 # ============================================
 log_section "SSH Security Hardening"
 
@@ -1169,7 +1307,7 @@ EOF
 fi
 
 # ============================================
-# 22. SYSTEM UPDATE
+# 23. SYSTEM UPDATE
 # ============================================
 log_section "System Update"
 
@@ -1183,7 +1321,7 @@ else
 fi
 
 # ============================================
-# 23. REDUCE EXT4 RESERVED BLOCKS
+# 24. REDUCE EXT4 RESERVED BLOCKS
 # ============================================
 log_section "Ext4 Reserved Blocks"
 
@@ -1227,7 +1365,7 @@ else
 fi
 
 # ============================================
-# 24. XANDEUM-PAGES STORAGE
+# 25. XANDEUM-PAGES STORAGE
 # ============================================
 log_section "Xandeum Pages Storage"
 
@@ -1310,7 +1448,7 @@ else
 fi
 
 # ============================================
-# 25. WRITE VERSION MARKER
+# 26. WRITE VERSION MARKER
 # ============================================
 if [[ "$DRY_RUN" == false ]]; then
     log_section "Writing Version Marker"
@@ -1345,7 +1483,7 @@ printf "%-25s %-20s %s\n" "ChillXand Sudo" "${STATUS[chillxand_user]:-unknown}" 
 printf "%-25s %-20s %s\n" "Update Notifier" "${STATUS[update_notifier]:-unknown}" "${ACTION[update_notifier]:-check}"
 printf "%-25s %-20s %s\n" "Ubuntu Pro" "${STATUS[ubuntu_pro]:-unknown}" "${ACTION[ubuntu_pro]:-check}"
 printf "%-25s %-20s %s\n" "LivePatch" "${STATUS[livepatch]:-unknown}" "-"
-printf "%-25s %-20s %s\n" "Unattended Upgrades" "${STATUS[unattended_pkg]:-unknown}" "-"
+printf "%-25s %-20s %s\n" "Unattended Upgrades" "${STATUS[unattended_pkg]:-unknown}" "${ACTION[unattended_conf]:-check}"
 printf "%-25s %-20s %s\n" "Logrotate" "${STATUS[logrotate]:-unknown}" "${ACTION[logrotate]:-check}"
 printf "%-25s %-20s %s\n" "Journald" "${STATUS[journald]:-unknown}" "${ACTION[journald]:-check}"
 printf "%-25s %-20s %s\n" "Apport" "${STATUS[apport]:-unknown}" "-"
@@ -1355,11 +1493,12 @@ printf "%-25s %-20s %s\n" "tmpfs /tmp" "${STATUS[tmpfs]:-unknown}" "${ACTION[tmp
 printf "%-25s %-20s %s\n" "Cleanup Cron" "${STATUS[cleanup_cron]:-unknown}" "${ACTION[cleanup_cron]:-check}"
 printf "%-25s %-20s %s\n" "Fail2ban" "${STATUS[fail2ban]:-unknown}" "${ACTION[fail2ban]:-check}"
 printf "%-25s %-20s %s\n" "UFW Firewall" "${STATUS[ufw]:-unknown}" "${ACTION[ufw]:-check}"
-printf "%-25s %-20s %s\n" "Kernel Hardening" "${STATUS[sysctl]:-unknown}" "${ACTION[sysctl]:-check}"
+printf "%-25s %-20s %s\n" "Kernel/Network Tuning" "${STATUS[sysctl]:-unknown}" "${ACTION[sysctl]:-check}"
 printf "%-25s %-20s %s\n" "Network Protocols" "${STATUS[net_protocols]:-unknown}" "${ACTION[net_protocols]:-check}"
 printf "%-25s %-20s %s\n" "Shared Memory" "${STATUS[shm]:-unknown}" "${ACTION[shm]:-check}"
 printf "%-25s %-20s %s\n" "Ctrl-Alt-Delete" "${STATUS[ctrl_alt_del]:-unknown}" "${ACTION[ctrl_alt_del]:-check}"
 printf "%-25s %-20s %s\n" "Cron Restriction" "${STATUS[cron_restrict]:-unknown}" "${ACTION[cron_restrict]:-check}"
+printf "%-25s %-20s %s\n" "File Descriptor Limits" "${STATUS[fd_limits]:-unknown}" "${ACTION[fd_limits]:-check}"
 printf "%-25s %-20s %s\n" "UI/Desktop" "${STATUS[ui]:-unknown}" "${ACTION[ui]:-check}"
 printf "%-25s %-20s %s\n" "Keypair" "${STATUS[keypair]:-unknown}" "${ACTION[keypair]:-check}"
 printf "%-25s %-20s %s\n" "SSH Hardening" "${STATUS[ssh]:-unknown}" "${ACTION[ssh]:-check}"
@@ -1379,11 +1518,6 @@ fi
 if [[ "${ACTION[ssh]}" == "BLOCKED" ]]; then
     echo -e "${RED}⚠ SSH hardening blocked - no authorized_keys found!${NC}"
     echo -e "${RED}  From local machine: ssh-copy-id user@$(hostname)${NC}"
-    echo ""
-fi
-
-if [[ "${ACTION[ufw]}" == "MANUAL FIX" ]]; then
-    echo -e "${YELLOW}⚠ UFW has configuration issues - review above${NC}"
     echo ""
 fi
 
