@@ -10,7 +10,7 @@
 set -e
 
 # Version
-VERSION="1.0.10"
+VERSION="1.0.11"
 MARKER_DIR="/etc/chillxand"
 MARKER_FILE="${MARKER_DIR}/pnode-harden.version"
 
@@ -883,7 +883,7 @@ net.core.wmem_default = 1048576
 
 # Increase network processing budget
 # Allows kernel to process more packets per interrupt
-net.core.netdev_budget = 600
+net.core.netdev_budget = 1000
 net.core.netdev_budget_usecs = 8000
 
 # Increase backlog queue (helps prevent drops)
@@ -931,6 +931,28 @@ EOFRING
                 fi
             else
                 log_ok "NIC ring buffer already at maximum or not adjustable"
+            fi
+            
+            # Configure RPS (Receive Packet Steering) to distribute packets across all CPUs
+            CPU_COUNT=$(nproc)
+            CPU_MASK=$(printf '%x' $((2**CPU_COUNT-1)))
+            RPS_PATH="/sys/class/net/$PRIMARY_IF/queues/rx-0/rps_cpus"
+            
+            if [[ -f "$RPS_PATH" ]]; then
+                CURRENT_RPS=$(cat "$RPS_PATH" 2>/dev/null | tr -d '0,' | tr -d ' ')
+                if [[ -z "$CURRENT_RPS" || "$CURRENT_RPS" == "0" ]]; then
+                    log_action "Enabling RPS on $PRIMARY_IF (mask: $CPU_MASK for $CPU_COUNT CPUs)"
+                    echo "$CPU_MASK" > "$RPS_PATH" 2>/dev/null || true
+                    
+                    # Make RPS persistent via udev rule
+                    RPS_UDEV="/etc/udev/rules.d/99-rps.rules"
+                    cat > "$RPS_UDEV" << EOFRPS
+# ChillXand: Enable RPS to distribute packet processing across all CPUs
+SUBSYSTEM=="net", ACTION=="add", KERNEL=="$PRIMARY_IF", RUN+="/bin/sh -c 'echo $CPU_MASK > /sys/class/net/$PRIMARY_IF/queues/rx-0/rps_cpus'"
+EOFRPS
+                else
+                    log_ok "RPS already configured on $PRIMARY_IF"
+                fi
             fi
         fi
     fi
