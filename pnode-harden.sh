@@ -10,7 +10,7 @@
 set -e
 
 # Version
-VERSION="1.0.11"
+VERSION="1.0.12"
 MARKER_DIR="/etc/chillxand"
 MARKER_FILE="${MARKER_DIR}/pnode-harden.version"
 
@@ -903,6 +903,13 @@ net.ipv4.ip_local_port_range = 1024 65535
 net.ipv4.tcp_max_syn_backlog = 65536
 net.ipv4.tcp_fin_timeout = 30
 net.core.optmem_max = 25165824
+
+# BBR congestion control (better for variable latency/long distance)
+net.ipv4.tcp_congestion_control = bbr
+
+# TCP buffer sizes (larger for high bandwidth/latency connections)
+net.ipv4.tcp_rmem = 4096 87380 16777216
+net.ipv4.tcp_wmem = 4096 65536 16777216
 EOF
         sysctl -p "$NETPERF_CONF" 2>/dev/null || true
         
