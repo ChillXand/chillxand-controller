@@ -10,7 +10,7 @@
 set -e
 
 # Version
-VERSION="1.0.14"
+VERSION="1.0.15"
 MARKER_DIR="/etc/chillxand"
 MARKER_FILE="${MARKER_DIR}/pnode-harden.version"
 
@@ -36,7 +36,7 @@ EXPECTED_UFW_PORTS=(
     "5000/udp:Anywhere:Pod UDP"
     "9001/udp:Anywhere:Pod UDP 9001"
 )
-EXPECTED_LOCALHOST_PORTS=("80" "3000" "4000" "8000")
+EXPECTED_LOCALHOST_PORTS=("80" "3000" "4000")
 EXPECTED_3001_IPS=(
     "74.208.234.116:Master USA"
     "85.215.145.173:Control2 Germany"
@@ -306,8 +306,9 @@ fi
 # ============================================
 log_section "Unattended Upgrades"
 
-UNATTENDED_CONF="/etc/apt/apt.conf.d/50unattended-upgrades"
+UNATTENDED_CONF="/etc/apt/apt.conf.d/99-chillxand-unattended.conf"
 
+# Ensure package is installed
 if dpkg -l 2>/dev/null | grep -q "unattended-upgrades"; then
     log_ok "unattended-upgrades package is installed"
     STATUS[unattended_pkg]="installed"
@@ -323,32 +324,66 @@ else
     fi
 fi
 
-# Check config settings
-SETTINGS_TO_CHECK=(
-    "Remove-Unused-Kernel-Packages:true"
-    "Remove-Unused-Dependencies:true"
-    "Automatic-Reboot:false"
-)
+# Define our desired config (99 file overrides 50unattended-upgrades)
+read -r -d '' DESIRED_UNATTENDED_CONFIG << 'EOF' || true
+// ChillXand pNode Unattended Upgrades Configuration
+// This file overrides settings in 50unattended-upgrades
 
-for setting_pair in "${SETTINGS_TO_CHECK[@]}"; do
-    setting_name="${setting_pair%%:*}"
-    expected_value="${setting_pair##*:}"
-    
-    # Extract value, strip quotes, semicolons, and whitespace
-    current=$(grep -E "^Unattended-Upgrade::${setting_name}" "$UNATTENDED_CONF" 2>/dev/null | \
-              sed 's/.*"\([^"]*\)".*/\1/' | tr -d ' ;' || echo "not set")
-    
-    if [[ "$current" == "$expected_value" ]]; then
-        log_ok "$setting_name = $expected_value"
+// Enable updates from these origins
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}";
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}:${distro_codename}-updates";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+};
+
+// Cleanup settings
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+// Don't auto-reboot - pNode needs to stay running
+Unattended-Upgrade::Automatic-Reboot "false";
+EOF
+
+# Check if our config file exists and matches
+if [[ -f "$UNATTENDED_CONF" ]]; then
+    CURRENT_CONFIG=$(cat "$UNATTENDED_CONF")
+    if [[ "$CURRENT_CONFIG" == "$DESIRED_UNATTENDED_CONFIG" ]]; then
+        log_ok "ChillXand unattended-upgrades config is correct"
+        log_ok "Remove-Unused-Kernel-Packages = true"
+        log_ok "Remove-Unused-Dependencies = true"
+        log_ok "Automatic-Reboot = false"
+        STATUS[unattended_conf]="configured"
     else
-        log_status "$setting_name = $current (expected: $expected_value)"
-        log_action "Set $setting_name = $expected_value"
+        log_status "ChillXand unattended-upgrades config needs updating"
+        log_action "Update $UNATTENDED_CONF"
+        STATUS[unattended_conf]="needs update"
         if [[ "$DRY_RUN" == false ]]; then
-            [[ ! -f "${UNATTENDED_CONF}.backup" ]] && cp "$UNATTENDED_CONF" "${UNATTENDED_CONF}.backup"
-            set_unattended_config "$UNATTENDED_CONF" "Unattended-Upgrade::${setting_name}" "$expected_value"
+            echo "$DESIRED_UNATTENDED_CONFIG" > "$UNATTENDED_CONF"
+            log_ok "Updated unattended-upgrades config"
         fi
     fi
-done
+else
+    log_status "ChillXand unattended-upgrades config not found"
+    log_action "Create $UNATTENDED_CONF"
+    STATUS[unattended_conf]="missing"
+    if [[ "$DRY_RUN" == false ]]; then
+        echo "$DESIRED_UNATTENDED_CONFIG" > "$UNATTENDED_CONF"
+        log_ok "Created unattended-upgrades config"
+    fi
+fi
+
+# Clean up old backup file if it exists (APT complains about invalid extensions)
+UNATTENDED_BACKUP="/etc/apt/apt.conf.d/50unattended-upgrades.backup"
+if [[ -f "$UNATTENDED_BACKUP" ]]; then
+    log_status "Found orphaned backup file: $UNATTENDED_BACKUP"
+    log_action "Remove old backup file"
+    if [[ "$DRY_RUN" == false ]]; then
+        rm "$UNATTENDED_BACKUP"
+        log_ok "Removed orphaned backup file"
+    fi
+fi
 
 # ============================================
 # 5. LOGROTATE
@@ -397,21 +432,33 @@ fi
 log_section "Journald Configuration"
 
 JOURNALD_CONF="/etc/systemd/journald.conf"
+JOURNALD_DROP_IN_DIR="/etc/systemd/journald.conf.d"
+JOURNALD_DROP_IN="${JOURNALD_DROP_IN_DIR}/99-chillxand.conf"
 
-# Check if already configured with our settings
-if grep -q "^SystemMaxUse=200M" "$JOURNALD_CONF" 2>/dev/null; then
-    log_ok "Journald already configured with size limits"
+# Check if drop-in config already exists with our settings
+if [[ -f "$JOURNALD_DROP_IN" ]] && grep -q "^SystemMaxUse=200M" "$JOURNALD_DROP_IN" 2>/dev/null; then
+    log_ok "Journald drop-in config already configured"
     STATUS[journald]="configured"
     ACTION[journald]="none"
 else
-    log_status "Journald not configured with size limits"
-    log_action "Set journal limits (200M max, 3 days retention)"
+    log_status "Journald drop-in config not configured"
+    log_action "Create drop-in config (200M max, 3 days retention)"
     STATUS[journald]="not configured"
     ACTION[journald]="configure"
     if [[ "$DRY_RUN" == false ]]; then
-        [[ ! -f "${JOURNALD_CONF}.backup" ]] && cp "$JOURNALD_CONF" "${JOURNALD_CONF}.backup"
-        cat > "$JOURNALD_CONF" << 'EOF'
+        # Restore original journald.conf if we previously overwrote it
+        if [[ -f "${JOURNALD_CONF}.backup" ]]; then
+            cp "${JOURNALD_CONF}.backup" "$JOURNALD_CONF"
+            rm "${JOURNALD_CONF}.backup"
+            log_ok "Restored original journald.conf from backup (backup removed)"
+        fi
+        
+        # Create drop-in directory and config
+        mkdir -p "$JOURNALD_DROP_IN_DIR"
+        cat > "$JOURNALD_DROP_IN" << 'EOF'
 [Journal]
+# ChillXand pNode journald settings
+# Overrides defaults - original config preserved in journald.conf
 SystemMaxUse=200M
 SystemMaxFileSize=50M
 SystemMaxFiles=5
