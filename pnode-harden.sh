@@ -10,7 +10,7 @@
 set -e
 
 # Version
-VERSION="1.0.12"
+VERSION="1.0.14"
 MARKER_DIR="/etc/chillxand"
 MARKER_FILE="${MARKER_DIR}/pnode-harden.version"
 
@@ -489,13 +489,26 @@ if [[ -f "$LOCALE_ARCHIVE" ]]; then
         ACTION[locales]="cleanup"
         
         if [[ "$DRY_RUN" == false ]]; then
-            # Install localepurge if not present
+            # Step 1: Configure /etc/locale.gen to only include en_US.UTF-8
+            cat > /etc/locale.gen << 'EOF'
+en_US.UTF-8 UTF-8
+EOF
+            
+            # Step 2: Remove any per-package locale configs that might regenerate locales
+            rm -rf /var/lib/locales/supported.d/*
+            
+            # Step 3: Regenerate locale-archive with ONLY the locales in /etc/locale.gen
+            # The --purge flag removes locales not in locale.gen
+            locale-gen --purge
+            
+            # Step 4: Install localepurge to prevent future packages from adding locales
             if ! command -v localepurge &>/dev/null; then
                 echo "localepurge localepurge/nopurge multiselect en, en_US, en_US.UTF-8" | debconf-set-selections
                 echo "localepurge localepurge/use-dpkg-feature boolean true" | debconf-set-selections
                 DEBIAN_FRONTEND=noninteractive apt install -y localepurge
             fi
-            # Configure to keep only English
+            
+            # Step 5: Configure localepurge for future installs
             cat > /etc/locale.nopurge << 'EOF'
 MANDELETE
 DONTBOTHERNEWLOCALE
@@ -504,7 +517,11 @@ en
 en_US
 en_US.UTF-8
 EOF
-            localepurge 2>/dev/null || true
+            
+            # Report new size
+            NEW_SIZE=$(du -h "$LOCALE_ARCHIVE" 2>/dev/null | awk '{print $1}')
+            NEW_COUNT=$(locale -a 2>/dev/null | wc -l)
+            log_ok "Locale cleanup complete: $LOCALE_COUNT → $NEW_COUNT locales ($LOCALE_SIZE → $NEW_SIZE)"
         fi
     else
         log_ok "Locales already minimal ($LOCALE_COUNT)"
@@ -1348,6 +1365,14 @@ BUFFER_GB=12
 BUFFER_BYTES=$((BUFFER_GB * 1024 * 1024 * 1024))
 MIN_XANDEUM_GB=50  # Minimum viable xandeum-pages size
 
+# Detect filesystem type - ZFS/btrfs/containers don't support fallocate
+ROOT_FSTYPE=$(df -T / | awk 'NR==2 {print $2}')
+USE_TRUNCATE=false
+if [[ "$ROOT_FSTYPE" == "zfs" || "$ROOT_FSTYPE" == "btrfs" || "$ROOT_FSTYPE" == "overlay" || "$ROOT_FSTYPE" == "fuse"* ]]; then
+    USE_TRUNCATE=true
+    log_status "Filesystem: $ROOT_FSTYPE (using truncate for sparse file)"
+fi
+
 # Get current free space
 FREE_BYTES=$(df -B1 / | awk 'NR==2 {print $4}')
 FREE_GB=$((FREE_BYTES / 1024 / 1024 / 1024))
@@ -1367,6 +1392,21 @@ TARGET_GB=$((TARGET_BYTES / 1024 / 1024 / 1024))
 
 # Log current state
 log_status "Current: ${CURRENT_GB}GB, Free: ${FREE_GB}GB, Buffer: ${BUFFER_GB}GB"
+
+# Helper function to allocate file (uses truncate for ZFS, fallocate otherwise)
+allocate_file() {
+    local size="$1"
+    local file="$2"
+    if [[ "$USE_TRUNCATE" == true ]]; then
+        truncate -s "$size" "$file"
+    else
+        if ! fallocate -l "$size" "$file" 2>/dev/null; then
+            # Fallback to truncate if fallocate fails
+            log_warn "fallocate failed, falling back to truncate (sparse file)"
+            truncate -s "$size" "$file"
+        fi
+    fi
+}
 
 # Ensure target is reasonable
 if [[ $TARGET_GB -lt $MIN_XANDEUM_GB ]]; then
@@ -1391,7 +1431,7 @@ elif [[ -f "$XANDEUM_PAGES" ]]; then
         ACTION[xandeum_pages]="grow to ${TARGET_GB}GB"
         
         if [[ "$DRY_RUN" == false ]]; then
-            fallocate -l "${TARGET_BYTES}" "$XANDEUM_PAGES"
+            allocate_file "${TARGET_BYTES}" "$XANDEUM_PAGES"
             log_ok "Grew /xandeum-pages to ${TARGET_GB}GB"
         fi
     else
@@ -1414,7 +1454,7 @@ else
     ACTION[xandeum_pages]="create ${TARGET_GB}GB"
     
     if [[ "$DRY_RUN" == false ]]; then
-        fallocate -l "${TARGET_BYTES}" "$XANDEUM_PAGES"
+        allocate_file "${TARGET_BYTES}" "$XANDEUM_PAGES"
         chmod 600 "$XANDEUM_PAGES"
         chown root:root "$XANDEUM_PAGES"
         log_ok "Created /xandeum-pages at ${TARGET_GB}GB"
