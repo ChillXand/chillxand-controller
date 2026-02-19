@@ -10,7 +10,7 @@
 set -e
 
 # Version
-VERSION="1.0.15"
+VERSION="1.0.16"
 MARKER_DIR="/etc/chillxand"
 MARKER_FILE="${MARKER_DIR}/pnode-harden.version"
 
@@ -25,6 +25,7 @@ NC='\033[0m'
 # Mode
 DRY_RUN=true
 PRO_TOKEN=""
+SKIP_XANDEUM_PAGES=false
 
 # Summary tracking
 declare -A STATUS
@@ -47,27 +48,30 @@ EXPECTED_3001_IPS=(
 usage() {
     echo "ChillXand pNode Hardening Script v${VERSION}"
     echo ""
-    echo "Usage: $0 [-x] [-t <token>]"
+    echo "Usage: $0 [-x] [-t <token>] [-S]"
     echo ""
     echo "Default mode is DRY-RUN - shows what would be changed without making changes."
     echo ""
     echo "Options:"
     echo "  -x              Execute changes (default is dry-run)"
     echo "  -t <token>      Ubuntu Pro token (optional, required only if Pro not attached)"
+    echo "  -S              Skip xandeum-pages storage allocation"
     echo "  -h              Show this help message"
     echo ""
     echo "Examples:"
     echo "  $0              # Dry-run, see what would change"
     echo "  $0 -x           # Execute (if Ubuntu Pro already attached)"
     echo "  $0 -x -t 'C1xxx...'  # Execute with Ubuntu Pro token"
+    echo "  $0 -x -S        # Execute but skip xandeum-pages storage"
     exit 0
 }
 
 # Parse arguments
-while getopts "xt:h" opt; do
+while getopts "xt:Sh" opt; do
     case $opt in
         x) DRY_RUN=false ;;
         t) PRO_TOKEN="$OPTARG" ;;
+        S) SKIP_XANDEUM_PAGES=true ;;
         h) usage ;;
         *) usage ;;
     esac
@@ -1405,6 +1409,11 @@ fi
 # ============================================
 # 24. XANDEUM-PAGES STORAGE
 # ============================================
+if [[ "$SKIP_XANDEUM_PAGES" == true ]]; then
+    log_section "Xandeum Pages Storage (SKIPPED via -S flag)"
+    STATUS[xandeum_pages]="skipped"
+    ACTION[xandeum_pages]="skip (-S)"
+else
 log_section "Xandeum Pages Storage"
 
 XANDEUM_PAGES="/xandeum-pages"
@@ -1507,6 +1516,7 @@ else
         log_ok "Created /xandeum-pages at ${TARGET_GB}GB"
     fi
 fi
+fi # end SKIP_XANDEUM_PAGES
 
 # ============================================
 # 25. WRITE VERSION MARKER
