@@ -215,6 +215,35 @@ fix_dpkg_if_needed() {
     return 1  # no fix needed
 }
 
+# Helper: Find xandeum packages from apt (managed via /update/pod, not apt upgrade)
+get_xandeum_packages() {
+    apt list --installed 2>/dev/null | grep -i 'xandeum\|xandminer\|pod-package' | cut -d'/' -f1
+}
+
+# Helper: Hold xandeum packages to prevent apt upgrade from touching them
+hold_xandeum_packages() {
+    local held=()
+    while IFS= read -r pkg; do
+        [[ -z "$pkg" ]] && continue
+        apt-mark hold "$pkg" &>/dev/null && held+=("$pkg")
+    done < <(get_xandeum_packages)
+    if [[ ${#held[@]} -gt 0 ]]; then
+        log_warn "Held Xandeum packages from apt upgrade: ${held[*]}"
+    fi
+}
+
+# Helper: Unhold xandeum packages after apt upgrade completes
+unhold_xandeum_packages() {
+    local unheld=()
+    while IFS= read -r pkg; do
+        [[ -z "$pkg" ]] && continue
+        apt-mark unhold "$pkg" &>/dev/null && unheld+=("$pkg")
+    done < <(get_xandeum_packages)
+    if [[ ${#unheld[@]} -gt 0 ]]; then
+        log_ok "Unheld Xandeum packages: ${unheld[*]}"
+    fi
+}
+
 # ============================================
 # MODE BANNER
 # ============================================
@@ -1399,10 +1428,14 @@ fi
 log_section "System Update"
 
 if [[ "$DRY_RUN" == true ]]; then
-    log_action "Run apt update && apt upgrade -y"
+    log_action "Run apt update && apt upgrade -y (excluding Xandeum packages)"
     ACTION[system_update]="will update"
 else
-    log_action "Running apt update && apt upgrade..."
+    log_action "Running apt update && apt upgrade (excluding Xandeum packages)..."
+
+    # Hold Xandeum packages so apt upgrade doesn't touch them
+    hold_xandeum_packages
+
     apt_update_output=$(apt update 2>&1) || true
     echo "$apt_update_output"
     if echo "$apt_update_output" | grep -q "dpkg was interrupted\|dpkg --configure -a"; then
@@ -1411,6 +1444,10 @@ else
         apt update
     fi
     apt upgrade -y
+
+    # Unhold Xandeum packages
+    unhold_xandeum_packages
+
     ACTION[system_update]="completed"
 fi
 
