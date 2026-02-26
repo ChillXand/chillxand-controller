@@ -184,6 +184,37 @@ set_unattended_config() {
     fi
 }
 
+# Helper: Fix dpkg interrupted state if detected
+fix_dpkg_if_needed() {
+    # Quick check: dpkg --audit outputs something if packages are in a bad state
+    local audit_output
+    audit_output=$(dpkg --audit 2>&1 || true)
+
+    # Also check if --configure --pending would do anything
+    local needs_fix=false
+    if [[ -n "$audit_output" ]]; then
+        needs_fix=true
+    elif ! dpkg --configure --pending --dry-run &>/dev/null; then
+        needs_fix=true
+    fi
+
+    if [[ "$needs_fix" == true ]]; then
+        log_warn "Detected dpkg interrupted state"
+        if [[ "$DRY_RUN" == true ]]; then
+            log_action "Run dpkg --configure -a to fix interrupted state"
+        else
+            log_action "Running dpkg --configure -a to fix interrupted state..."
+            if dpkg --configure -a; then
+                log_ok "dpkg interrupted state fixed"
+            else
+                log_error "dpkg --configure -a had errors (continuing anyway)"
+            fi
+        fi
+        return 0  # fix was needed
+    fi
+    return 1  # no fix needed
+}
+
 # ============================================
 # MODE BANNER
 # ============================================
@@ -251,6 +282,20 @@ else
         echo "chillxand ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_FILE"
         chmod 440 "$SUDOERS_FILE"
     fi
+fi
+
+# ============================================
+# 1b. DPKG PRE-FLIGHT CHECK
+# ============================================
+log_section "DPKG Pre-flight Check"
+
+if fix_dpkg_if_needed; then
+    STATUS[dpkg_fix]="fixed"
+    ACTION[dpkg_fix]="dpkg --configure -a"
+else
+    log_ok "dpkg state is clean"
+    STATUS[dpkg_fix]="clean"
+    ACTION[dpkg_fix]="none"
 fi
 
 # ============================================
@@ -1358,7 +1403,14 @@ if [[ "$DRY_RUN" == true ]]; then
     ACTION[system_update]="will update"
 else
     log_action "Running apt update && apt upgrade..."
-    apt update && apt upgrade -y
+    apt_update_output=$(apt update 2>&1) || true
+    echo "$apt_update_output"
+    if echo "$apt_update_output" | grep -q "dpkg was interrupted\|dpkg --configure -a"; then
+        log_warn "dpkg interrupted state detected during apt update, fixing..."
+        fix_dpkg_if_needed
+        apt update
+    fi
+    apt upgrade -y
     ACTION[system_update]="completed"
 fi
 
