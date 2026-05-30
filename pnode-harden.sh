@@ -46,6 +46,9 @@ EXPECTED_UFW_PORTS=(
     "22/tcp:Anywhere:SSH"
     "5000/udp:Anywhere:Pod UDP"
     "9001/udp:Anywhere:Pod UDP 9001"
+    "7000/tcp:Anywhere:Xandeum Ingest/Tap"
+    "7001/udp:Anywhere:Xandeum Ingest/Tap"
+    "7002/udp:Anywhere:Xandeum Ingest/Tap"
 )
 EXPECTED_LOCALHOST_PORTS=("80" "3000" "4000")
 EXPECTED_3001_IPS=(
